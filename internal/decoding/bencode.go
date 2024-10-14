@@ -3,11 +3,68 @@ package decoding
 import (
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"unicode"
 )
 
-// Supports: String, Int, Lists
+func EncodeBencode(element interface{}) (string, error) {
+	log.Println("| starting bencode encoding")
+	defer log.Println("| finish bencode encoding")
+	switch elementType := element.(type) {
+	case int:
+		num := element.(int)
+		log.Printf("found number: %d", num)
+		return "i" + strconv.Itoa(num) + "e", nil
+	case string:
+		str := element.(string)
+		log.Printf("found string: %q", str)
+		return strconv.Itoa(len(str)) + ":" + str, nil
+	case []interface{}:
+		elementList := element.([]interface{})
+		finalStr := "l"
+		for _, value := range elementList {
+			str, err := EncodeBencode(value)
+			if err != nil {
+				return "", err
+			}
+			finalStr += str
+		}
+		log.Printf("found list: %q", finalStr + "e")
+		return finalStr + "e", nil
+	case map[string]interface{}:
+		elementMap := element.(map[string]interface{})
+		finalStr := "d"
+
+		keys := make([]string, 0, len(elementMap))
+		for k := range elementMap {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			value := elementMap[k]
+
+			keyStr, err := EncodeBencode(k)
+			if err != nil {
+				return "", err
+			}
+			finalStr += keyStr
+
+			valueStr, err := EncodeBencode(value)
+			if err != nil {
+				return "", err
+			}
+			finalStr += valueStr
+		}
+		log.Printf("found dict: %q", finalStr + "e")
+		return finalStr + "e", nil
+	default:
+		return "", fmt.Errorf("Unkown type %T, value %v", elementType, element)
+	}
+}
+
+// Supports: String, Int, Lists, Dicts
 func DecodeBencode(bencodedString string) (interface{}, error) {
 	firstChar := rune(bencodedString[0])
 
