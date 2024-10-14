@@ -130,6 +130,42 @@ func decodeList(bencodedString string) ([]interface{}, error) {
 	return elements, nil
 }
 
+func decodeDictionary(bencodedString string) (map[string]interface{}, error) {
+	log.Println("found dict")
+	elements := make(map[string]interface{})
+
+	// TODO(molivera): This is O(2 N) as it relies on decodeList which is O(N)
+	// could be O(N) if refactor extracting method of decodeList
+	// N = number of elements
+	listElements, err := decodeList(bencodedString)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(listElements)%2 != 0 {
+		return nil, fmt.Errorf("list has odd elements, some element miss a key or a value: %v", listElements)
+	}
+
+	log.Printf("the elements of the dictionary are: %v", listElements)
+
+	for i := 0; i < len(listElements); i += 2 {
+		currentKey := listElements[i]
+		currentElement := listElements[i+1]
+		keyString := ""
+
+		switch keyType := currentKey.(type) {
+		default:
+			return nil, fmt.Errorf("key is not string. type: %T, key: %v", keyType, currentKey)
+		case string:
+			keyString = currentKey.(string)
+		}
+
+		elements[keyString] = currentElement
+	}
+
+	return elements, nil
+}
+
 func getLength(e interface{}) (int, error) {
 	length := 0
 
@@ -151,6 +187,25 @@ func getLength(e interface{}) (int, error) {
 				return 0, err
 			}
 			sum += innerLength
+		}
+		length = 2 + sum
+	case map[string]interface{}:
+		mapElements := e.(map[string]interface{})
+		sum := 0
+		for key, item := range mapElements {
+			// element length
+			elementLength, err := getLength(item)
+			if err != nil {
+				return 0, err
+			}
+
+			// key length
+			keyLen, err := getLength(key)
+			if err != nil {
+				return 0, err
+			}
+
+			sum += elementLength + keyLen
 		}
 		length = 2 + sum
 	default:
