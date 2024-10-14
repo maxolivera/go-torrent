@@ -2,23 +2,23 @@ package decoding
 
 import (
 	"fmt"
-	"log"
+	// "log"
 	"sort"
 	"strconv"
 	"unicode"
 )
 
 func EncodeBencode(element interface{}) (string, error) {
-	log.Println("| starting bencode encoding")
-	defer log.Println("| finish bencode encoding")
+	// log.Println("| starting bencode encoding")
+	// defer log.Println("| finish bencode encoding")
 	switch elementType := element.(type) {
 	case int:
 		num := element.(int)
-		log.Printf("found number: %d", num)
+		// log.Printf("found number: %d", num)
 		return "i" + strconv.Itoa(num) + "e", nil
 	case string:
 		str := element.(string)
-		log.Printf("found string: %q", str)
+		// log.Printf("found string: %q", str)
 		return strconv.Itoa(len(str)) + ":" + str, nil
 	case []interface{}:
 		elementList := element.([]interface{})
@@ -30,7 +30,7 @@ func EncodeBencode(element interface{}) (string, error) {
 			}
 			finalStr += str
 		}
-		log.Printf("found list: %q", finalStr + "e")
+		// log.Printf("found list: %q", finalStr + "e")
 		return finalStr + "e", nil
 	case map[string]interface{}:
 		elementMap := element.(map[string]interface{})
@@ -57,7 +57,7 @@ func EncodeBencode(element interface{}) (string, error) {
 			}
 			finalStr += valueStr
 		}
-		log.Printf("found dict: %q", finalStr + "e")
+		// log.Printf("found dict: %q", finalStr + "e")
 		return finalStr + "e", nil
 	default:
 		return "", fmt.Errorf("Unkown type %T, value %v", elementType, element)
@@ -108,7 +108,7 @@ func DecodeBencode(bencodedString string) (interface{}, error) {
 }
 
 func decodeString(bencodedString string) (string, error) {
-	log.Println("found string")
+	// log.Println("found string")
 	var firstColonIndex int
 
 	for i := 0; i < len(bencodedString); i++ {
@@ -127,12 +127,12 @@ func decodeString(bencodedString string) (string, error) {
 
 	str := bencodedString[firstColonIndex+1 : firstColonIndex+1+length]
 
-	log.Printf("string is: %s\n", str)
+	// log.Printf("string is: %s\n", str)
 	return str, nil
 }
 
 func decodeInteger(bencodedString string) (int, error) {
-	log.Println("found number")
+	// log.Println("found number")
 
 	lengthStr := 0
 	for i := 1; i < len(bencodedString)-1; i++ {
@@ -148,23 +148,23 @@ func decodeInteger(bencodedString string) (int, error) {
 		return 0, err
 	}
 
-	log.Printf("number is: %d\n", num)
+	// log.Printf("number is: %d\n", num)
 	return num, nil
 }
 
 func decodeList(bencodedString string) ([]interface{}, error) {
 	// This algorithm is O(N), where N is number of items
-	log.Println("found list")
+	// log.Println("found list")
 	elements := make([]interface{}, 0)
 
 	startLength := 0
 
 	for true {
 		if rune(bencodedString[1+startLength]) == 'e' {
-			log.Println("found closing char of the list")
+			// log.Println("found closing char of the list")
 			break
 		}
-		log.Printf("the string to be decoded is %q\n", bencodedString[1+startLength:len(bencodedString)-1])
+		// log.Printf("the string to be decoded is %q\n", bencodedString[1+startLength:len(bencodedString)-1])
 		element, err := DecodeBencode(bencodedString[1+startLength : len(bencodedString)-1])
 		if err != nil {
 			return nil, err
@@ -178,17 +178,17 @@ func decodeList(bencodedString string) ([]interface{}, error) {
 		startLength += length
 
 		elements = append(elements, element)
-		log.Printf(
-			"found element %v which has length %d, starting after %d chars, which results in %q",
-			element, length, startLength, bencodedString[1+startLength:],
-		)
+		// log.Printf(
+	//		"found element %v which has length %d, starting after %d chars, which results in %q",
+	//		element, length, startLength, bencodedString[1+startLength:],
+	//	)
 	}
 
 	return elements, nil
 }
 
 func decodeDictionary(bencodedString string) (map[string]interface{}, error) {
-	log.Println("found dict")
+	// log.Println("found dict")
 	elements := make(map[string]interface{})
 
 	// TODO(molivera): This is O(2 N) as it relies on decodeList which is O(N)
@@ -203,7 +203,7 @@ func decodeDictionary(bencodedString string) (map[string]interface{}, error) {
 		return nil, fmt.Errorf("list has odd elements, some element miss a key or a value: %v", listElements)
 	}
 
-	log.Printf("the elements of the dictionary are: %v", listElements)
+	// log.Printf("the elements of the dictionary are: %v", listElements)
 
 	for i := 0; i < len(listElements); i += 2 {
 		currentKey := listElements[i]

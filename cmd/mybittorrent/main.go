@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -70,9 +71,9 @@ func main() {
 			fmt.Printf("error encoding info: %w", err)
 			return
 		}
-		jsonOutput, _ := json.Marshal(info)
-		log.Printf("decoded info: %s\n", string(jsonOutput))
-		log.Printf("encoded info: %s\n", infoEncoded)
+		// jsonOutput, _ := json.Marshal(info)
+		// log.Printf("decoded info: %s\n", string(jsonOutput))
+		// log.Printf("encoded info: %s\n", infoEncoded)
 
 		hash := sha1.New()
 		_, err = hash.Write([]byte(infoEncoded))
@@ -85,14 +86,40 @@ func main() {
 		// TODO(maolivera): should assert type
 		infoMap := info.(map[string]interface{})
 
-		length, ok := infoMap["length"]
+		lengthInterface, ok := infoMap["length"]
 		if !ok {
 			fmt.Println("error torrent does not has length")
 			return
+		}
+		length := lengthInterface.(int)
+
+		pieceLengthInterface, ok := infoMap["piece length"]
+		if !ok {
+			fmt.Println("error torrent does not has length")
+			return
+		}
+		pieceLength := pieceLengthInterface.(int)
+
+		piecesInterface := infoMap["pieces"]
+		piecesString := piecesInterface.(string)
+		pieces := []byte(piecesString)
+
+		numPieces := len(pieces) / 20
+		piecesHashes := make([]string, numPieces)
+
+		for i := 0; i < numPieces; i++ {
+			piece := pieces[i*20 : (i+1)*20]
+			pieceHash := hex.EncodeToString([]byte(piece))
+			piecesHashes[i] = pieceHash
 		}
 
 		fmt.Printf("Tracker URL: %s\n", url)
 		fmt.Printf("Length: %d\n", length)
 		fmt.Printf("Info Hash: %x\n", hashSum)
+		fmt.Printf("Piece Length: %d\n", pieceLength)
+		fmt.Println("Piece Hashes:")
+		for _, pieceHash := range piecesHashes {
+			fmt.Println(pieceHash)
+		}
 	}
 }
