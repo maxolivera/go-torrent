@@ -16,7 +16,10 @@ var _ = json.Marshal
 // - 5:hello -> hello
 // - 10:hello12345 -> hello12345
 func decodeBencode(bencodedString string) (interface{}, error) {
-	if unicode.IsDigit(rune(bencodedString[0])) {
+	firstChar := rune(bencodedString[0])
+
+	// is string
+	if unicode.IsDigit(firstChar) {
 		var firstColonIndex int
 
 		for i := 0; i < len(bencodedString); i++ {
@@ -34,9 +37,29 @@ func decodeBencode(bencodedString string) (interface{}, error) {
 		}
 
 		return bencodedString[firstColonIndex+1 : firstColonIndex+1+length], nil
-	} else {
-		return "", fmt.Errorf("Only strings are supported at the moment")
 	}
+
+	// int
+	if firstChar == 'i' {
+		// check if properly formatted
+		if bencodedString[len(bencodedString)-1] != 'e' {
+			return "", fmt.Errorf(
+				"error during int decoding: last rune is not \"e\", last rune: %v, full string: %s",
+				bencodedString[len(bencodedString)-1],
+				bencodedString,
+			)
+		}
+
+		// no need to check if properly parsed because strconv.Atoi does
+		num, err := strconv.Atoi(bencodedString[1:len(bencodedString) - 1])
+		if err != nil {
+			return "", err
+		}
+
+		return num, nil
+	}
+
+	return "", fmt.Errorf("Type not recognized. Supported types at the moment: Strings, Ints")
 }
 
 func main() {
