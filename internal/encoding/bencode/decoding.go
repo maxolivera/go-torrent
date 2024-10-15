@@ -1,110 +1,46 @@
-package decoding
+package bencode
 
 import (
 	"fmt"
-	// "log"
-	"sort"
 	"strconv"
-	"unicode"
 )
 
-func EncodeBencode(element interface{}) (string, error) {
-	// log.Println("| starting bencode encoding")
-	// defer log.Println("| finish bencode encoding")
-	switch elementType := element.(type) {
-	case int:
-		num := element.(int)
-		// log.Printf("found number: %d", num)
-		return "i" + strconv.Itoa(num) + "e", nil
-	case string:
-		str := element.(string)
-		// log.Printf("found string: %q", str)
-		return strconv.Itoa(len(str)) + ":" + str, nil
-	case []interface{}:
-		elementList := element.([]interface{})
-		finalStr := "l"
-		for _, value := range elementList {
-			str, err := EncodeBencode(value)
-			if err != nil {
-				return "", err
-			}
-			finalStr += str
-		}
-		// log.Printf("found list: %q", finalStr + "e")
-		return finalStr + "e", nil
-	case map[string]interface{}:
-		elementMap := element.(map[string]interface{})
-		finalStr := "d"
-
-		keys := make([]string, 0, len(elementMap))
-		for k := range elementMap {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-
-		for _, k := range keys {
-			value := elementMap[k]
-
-			keyStr, err := EncodeBencode(k)
-			if err != nil {
-				return "", err
-			}
-			finalStr += keyStr
-
-			valueStr, err := EncodeBencode(value)
-			if err != nil {
-				return "", err
-			}
-			finalStr += valueStr
-		}
-		// log.Printf("found dict: %q", finalStr + "e")
-		return finalStr + "e", nil
-	default:
-		return "", fmt.Errorf("Unkown type %T, value %v", elementType, element)
-	}
-}
-
 // Supports: String, Int, Lists, Dicts
-func DecodeBencode(bencodedString string) (interface{}, error) {
+func Decode(bencodedString string) (interface{}, error) {
 	firstChar := rune(bencodedString[0])
 
-	// string
-	if unicode.IsDigit(firstChar) {
+	switch firstChar {
+	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		str, err := decodeString(bencodedString)
 		if err != nil {
 			return nil, err
 		}
 		return str, nil
-	}
 
-	// int
-	if firstChar == 'i' {
+	case 'i':
 		num, err := decodeInteger(bencodedString)
 		if err != nil {
 			return nil, err
 		}
 		return num, nil
-	}
 
-	// lists
-	if firstChar == 'l' {
+	case 'l':
 		elements, err := decodeList(bencodedString)
 		if err != nil {
 			return nil, err
 		}
 		return elements, nil
-	}
 
-	// dictionary
-	if firstChar == 'd' {
+	case 'd':
 		elements, err := decodeDictionary(bencodedString)
 		if err != nil {
 			return nil, err
 		}
 		return elements, nil
-	}
 
-	return "", fmt.Errorf("Type not recognized. Supported types at the moment: Strings, Ints, Lists. Element %s", bencodedString)
+	default:
+		return "", fmt.Errorf("Type not recognized. Supported types at the moment: Strings, Ints, Lists. Element %s", bencodedString)
+	}
 }
 
 func decodeString(bencodedString string) (string, error) {
@@ -165,7 +101,7 @@ func decodeList(bencodedString string) ([]interface{}, error) {
 			break
 		}
 		// log.Printf("the string to be decoded is %q\n", bencodedString[1+startLength:len(bencodedString)-1])
-		element, err := DecodeBencode(bencodedString[1+startLength : len(bencodedString)-1])
+		element, err := Decode(bencodedString[1+startLength : len(bencodedString)-1])
 		if err != nil {
 			return nil, err
 		}
@@ -179,9 +115,9 @@ func decodeList(bencodedString string) ([]interface{}, error) {
 
 		elements = append(elements, element)
 		// log.Printf(
-	//		"found element %v which has length %d, starting after %d chars, which results in %q",
-	//		element, length, startLength, bencodedString[1+startLength:],
-	//	)
+		//		"found element %v which has length %d, starting after %d chars, which results in %q",
+		//		element, length, startLength, bencodedString[1+startLength:],
+		//	)
 	}
 
 	return elements, nil

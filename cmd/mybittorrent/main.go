@@ -8,7 +8,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/decoding"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/encoding/bencode"
 )
 
 func main() {
@@ -18,10 +18,11 @@ func main() {
 	default:
 		fmt.Println("Unknown command: " + command)
 		os.Exit(1)
+
 	case "decode":
 		bencodedValue := os.Args[2]
 
-		decoded, err := decoding.DecodeBencode(bencodedValue)
+		decoded, err := bencode.Decode(bencodedValue)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -29,17 +30,17 @@ func main() {
 
 		jsonOutput, _ := json.Marshal(decoded)
 		fmt.Println(string(jsonOutput))
+
 	case "info":
 		file := os.Args[2]
 
-		// TODO(maolivera): maybe use os.Open and then .Read if file is too big?
 		data, err := os.ReadFile(file)
 		if err != nil {
 			log.Fatalf("error during file %q reading: %v", file, err)
 		}
 		decodedMap := make(map[string]interface{})
 
-		decoded, err := decoding.DecodeBencode(string(data))
+		decoded, err := bencode.Decode(string(data))
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -66,7 +67,7 @@ func main() {
 
 		// sha1
 
-		infoEncoded, err := decoding.EncodeBencode(info)
+		infoEncoded, err := bencode.Encode(info)
 		if err != nil {
 			fmt.Printf("error encoding info: %w", err)
 			return
