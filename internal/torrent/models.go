@@ -1,13 +1,13 @@
 package torrent
 
-type Meta struct {
-	Announce string
-	Info     MetaInfo
+type MetaData struct {
+	Announce string   `bencode:"announce"`
+	Info     MetaInfo `bencode:"info"`
 }
 
 type MetaInfo struct {
-	Name        string
-	Length      int
-	PieceLength int
-	Pieces      []byte
+	Pieces      string `bencode:"pieces"`
+	Name        string `bencode:"name"`
+	Length      int    `bencode:"length"`
+	PieceLength int    `bencode:"piece length"`
 }

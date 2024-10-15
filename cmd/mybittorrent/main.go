@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/encoding/bencode"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/torrent"
 )
 
 func main() {
@@ -22,7 +23,7 @@ func main() {
 	case "decode":
 		bencodedValue := os.Args[2]
 
-		decoded, err := bencode.Decode(bencodedValue)
+		decoded, err := bencode.Decode([]byte(bencodedValue))
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -38,73 +39,37 @@ func main() {
 		if err != nil {
 			log.Fatalf("error during file %q reading: %v", file, err)
 		}
-		decodedMap := make(map[string]interface{})
 
-		decoded, err := bencode.Decode(string(data))
-		if err != nil {
+		// unmarshal torrent into MetaData
+		log.Printf("starting unmarshalling of: %s", string(data))
+		var torrent torrent.MetaData
+		if err = bencode.Unmarshal(data, &torrent); err != nil {
 			fmt.Println(err)
 			return
 		}
 
-		switch decodedType := decoded.(type) {
-		case map[string]interface{}:
-			decodedMap = decoded.(map[string]interface{})
-		default:
-			fmt.Printf("error torrent not decoded as a dictionary, instead is %T, %v", decodedType, decoded)
-		}
-
-		url, ok := decodedMap["announce"]
-		if !ok {
-			fmt.Println("error torrent does not has url")
-			return
-		}
-
-		info, ok := decodedMap["info"]
-		if !ok {
-			fmt.Println("error torrent does not has info")
-			return
-		}
-
-		// sha1
-
-		infoEncoded, err := bencode.Encode(info)
+		// hash info
+		infoEncoded, err := bencode.Encode(torrent.Info)
 		if err != nil {
-			fmt.Printf("error encoding info: %w", err)
+			fmt.Printf("error encoding info: %v", err)
 			return
 		}
-		// jsonOutput, _ := json.Marshal(info)
-		// log.Printf("decoded info: %s\n", string(jsonOutput))
-		// log.Printf("encoded info: %s\n", infoEncoded)
 
 		hash := sha1.New()
-		_, err = hash.Write([]byte(infoEncoded))
+		_, err = hash.Write(infoEncoded)
 		if err != nil {
-			fmt.Printf("error calculating SHA1 hash: %w", err)
+			fmt.Printf("error calculating SHA1 hash: %v", err)
 			return
 		}
 		hashSum := hash.Sum(nil)
 
-		// TODO(maolivera): should assert type
-		infoMap := info.(map[string]interface{})
+		// info fields
+		url := torrent.Announce
+		length := torrent.Info.Length
+		pieceLength := torrent.Info.PieceLength
+		pieces := []byte(torrent.Info.Pieces)
 
-		lengthInterface, ok := infoMap["length"]
-		if !ok {
-			fmt.Println("error torrent does not has length")
-			return
-		}
-		length := lengthInterface.(int)
-
-		pieceLengthInterface, ok := infoMap["piece length"]
-		if !ok {
-			fmt.Println("error torrent does not has length")
-			return
-		}
-		pieceLength := pieceLengthInterface.(int)
-
-		piecesInterface := infoMap["pieces"]
-		piecesString := piecesInterface.(string)
-		pieces := []byte(piecesString)
-
+		// hash pieces
 		numPieces := len(pieces) / 20
 		piecesHashes := make([]string, numPieces)
 
@@ -114,6 +79,7 @@ func main() {
 			piecesHashes[i] = pieceHash
 		}
 
+		// print report
 		fmt.Printf("Tracker URL: %s\n", url)
 		fmt.Printf("Length: %d\n", length)
 		fmt.Printf("Info Hash: %x\n", hashSum)

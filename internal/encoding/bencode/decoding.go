@@ -1,209 +1,140 @@
 package bencode
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 )
 
-// Supports: String, Int, Lists, Dicts
-func Decode(bencodedString string) (interface{}, error) {
-	firstChar := rune(bencodedString[0])
+func Decode(data []byte) (interface{}, error) {
+	reader := bytes.NewReader(data)
+	return decodeValue(reader)
+}
 
-	switch firstChar {
+func decodeValue(reader *bytes.Reader) (interface{}, error) {
+	b, err := reader.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+
+	switch b {
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-		str, err := decodeString(bencodedString)
-		if err != nil {
-			return nil, err
-		}
-		return str, nil
+		return readString(reader)
 
 	case 'i':
-		num, err := decodeInteger(bencodedString)
-		if err != nil {
-			return nil, err
-		}
-		return num, nil
+		return readInteger(reader)
 
 	case 'l':
-		elements, err := decodeList(bencodedString)
-		if err != nil {
-			return nil, err
-		}
-		return elements, nil
+		return decodeList(reader)
 
 	case 'd':
-		elements, err := decodeDictionary(bencodedString)
-		if err != nil {
-			return nil, err
-		}
-		return elements, nil
+		return decodeDictionary(reader)
 
 	default:
-		return "", fmt.Errorf("Type not recognized. Supported types at the moment: Strings, Ints, Lists. Element %s", bencodedString)
+		return nil, fmt.Errorf("unkown bencode type: %c", b)
 	}
 }
 
-func decodeString(bencodedString string) (string, error) {
-	// log.Println("found string")
-	var firstColonIndex int
+// NOTE(maolivera): I used readInt because even if is "decoding", I think is more
+// clear as it uses the reader, and it differiantiate between unmarshal and decode
 
-	for i := 0; i < len(bencodedString); i++ {
-		if bencodedString[i] == ':' {
-			firstColonIndex = i
-			break
-		}
+func readString(reader *bytes.Reader) (string, error) {
+	reader.UnreadByte() // go back to get full length
+
+	lengthStr, err := readUntil(reader, ':')
+	if err != nil {
+		return "", err
 	}
-
-	lengthStr := bencodedString[:firstColonIndex]
-
 	length, err := strconv.Atoi(lengthStr)
 	if err != nil {
 		return "", err
 	}
 
-	str := bencodedString[firstColonIndex+1 : firstColonIndex+1+length]
-
-	// log.Printf("string is: %s\n", str)
-	return str, nil
-}
-
-func decodeInteger(bencodedString string) (int, error) {
-	// log.Println("found number")
-
-	lengthStr := 0
-	for i := 1; i < len(bencodedString)-1; i++ {
-		if rune(bencodedString[i]) == 'e' {
-			break
-		}
-		lengthStr++
+	if length == 0 {
+		return "", nil
 	}
 
-	// no need to check if properly parsed because strconv.Atoi does
-	num, err := strconv.Atoi(bencodedString[1 : lengthStr+1])
+	strBytes := make([]byte, length)
+	_, err = reader.Read(strBytes)
+	if err != nil {
+		return "", err
+	}
+
+	return string(strBytes), nil
+}
+
+// NOTE(maolivera): I used readInteger because even if is "decoding", I think is more
+// clear as it uses the reader, and it differiantiate between unmarshal and decode
+
+func readInteger(reader *bytes.Reader) (int, error) {
+	intStr, err := readUntil(reader, 'e')
+	if err != nil {
+		return 0, err
+	}
+	if len(intStr) == 0 {
+		return 0, nil
+	}
+	intValue, err := strconv.Atoi(intStr)
 	if err != nil {
 		return 0, err
 	}
 
-	// log.Printf("number is: %d\n", num)
-	return num, nil
+	return intValue, nil
 }
 
-func decodeList(bencodedString string) ([]interface{}, error) {
-	// This algorithm is O(N), where N is number of items
-	// log.Println("found list")
-	elements := make([]interface{}, 0)
-
-	startLength := 0
-
-	for true {
-		if rune(bencodedString[1+startLength]) == 'e' {
-			// log.Println("found closing char of the list")
-			break
-		}
-		// log.Printf("the string to be decoded is %q\n", bencodedString[1+startLength:len(bencodedString)-1])
-		element, err := Decode(bencodedString[1+startLength : len(bencodedString)-1])
+func decodeList(reader *bytes.Reader) ([]interface{}, error) {
+	list := make([]any, 0)
+	for {
+		// peek
+		peekByte, err := reader.ReadByte()
 		if err != nil {
 			return nil, err
 		}
+		if peekByte == 'e' {
+			break // end of list
+		}
+		reader.UnreadByte() // go back
 
-		length, err := getLength(element)
+		value, err := decodeValue(reader)
 		if err != nil {
 			return nil, err
 		}
-
-		startLength += length
-
-		elements = append(elements, element)
-		// log.Printf(
-		//		"found element %v which has length %d, starting after %d chars, which results in %q",
-		//		element, length, startLength, bencodedString[1+startLength:],
-		//	)
+		list = append(list, value)
 	}
-
-	return elements, nil
+	return list, nil
 }
 
-func decodeDictionary(bencodedString string) (map[string]interface{}, error) {
+func decodeDictionary(reader *bytes.Reader) (map[string]interface{}, error) {
 	// log.Println("found dict")
-	elements := make(map[string]interface{})
+	dict := make(map[string]interface{})
 
-	// TODO(molivera): This is O(2 N) as it relies on decodeList which is O(N)
-	// could be O(N) if refactor extracting method of decodeList
-	// N = number of elements
-	listElements, err := decodeList(bencodedString)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(listElements)%2 != 0 {
-		return nil, fmt.Errorf("list has odd elements, some element miss a key or a value: %v", listElements)
-	}
-
-	// log.Printf("the elements of the dictionary are: %v", listElements)
-
-	for i := 0; i < len(listElements); i += 2 {
-		currentKey := listElements[i]
-		currentElement := listElements[i+1]
-		keyString := ""
-
-		switch keyType := currentKey.(type) {
-		default:
-			return nil, fmt.Errorf("key is not string. type: %T, key: %v", keyType, currentKey)
-		case string:
-			keyString = currentKey.(string)
+	for {
+		// peek
+		peekByte, err := reader.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		if peekByte == 'e' {
+			break // end of list
 		}
 
-		elements[keyString] = currentElement
-	}
+		// NOTE(maolivera): suppose d5:hello... we hit 'd' and we went to '5'
+		// if we go back one byte, we are at 'd', but readString already goes back
 
-	return elements, nil
-}
+		// reader.UnreadByte() // go back
 
-func getLength(e interface{}) (int, error) {
-	length := 0
-
-	switch elementType := e.(type) {
-	case int:
-		number := e.(int)
-		length = 2 + len(strconv.Itoa(number))
-	case string:
-		str := e.(string)
-		lenStr := len(str)
-		lenStrAscii := strconv.Itoa(lenStr)
-		length = 1 + lenStr + len(lenStrAscii)
-	case []interface{}:
-		list := e.([]interface{})
-		sum := 0
-		for _, item := range list {
-			innerLength, err := getLength(item)
-			if err != nil {
-				return 0, err
-			}
-			sum += innerLength
+		// read key
+		key, err := readString(reader)
+		if err != nil {
+			return nil, err
 		}
-		length = 2 + sum
-	case map[string]interface{}:
-		mapElements := e.(map[string]interface{})
-		sum := 0
-		for key, item := range mapElements {
-			// element length
-			elementLength, err := getLength(item)
-			if err != nil {
-				return 0, err
-			}
 
-			// key length
-			keyLen, err := getLength(key)
-			if err != nil {
-				return 0, err
-			}
-
-			sum += elementLength + keyLen
+		value, err := decodeValue(reader)
+		if err != nil {
+			return nil, err
 		}
-		length = 2 + sum
-	default:
-		return 0, fmt.Errorf("unexpected type %T, value %v", elementType, e)
-	}
 
-	return length, nil
+		dict[key] = value
+	}
+	return dict, nil
 }
