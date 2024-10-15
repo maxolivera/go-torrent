@@ -11,3 +11,8 @@ type MetaInfo struct {
 	Length      int    `bencode:"length"`
 	PieceLength int    `bencode:"piece length"`
 }
+
+type TrackerResponse struct {
+	Interval int    `bencode:"interval"`
+	Peers    string `bencode:"peers"`
+}
