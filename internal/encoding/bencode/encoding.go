@@ -3,12 +3,14 @@ package bencode
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"reflect"
 	"strconv"
 )
 
 // Supports <Int, String, List, Dict> bencode formats
 func Encode(element interface{}) ([]byte, error) {
+	log.Println("starting encoding")
 	var buf bytes.Buffer
 	err := encodeValue(&buf, reflect.ValueOf(element))
 	if err != nil {
@@ -20,17 +22,20 @@ func Encode(element interface{}) ([]byte, error) {
 func encodeValue(buf *bytes.Buffer, v reflect.Value) error {
 	switch v.Kind() {
 	case reflect.Int:
+		log.Println("found int")
 		buf.WriteString("i")
 		buf.WriteString(strconv.FormatInt(v.Int(), 10))
 		buf.WriteString("e")
 
 	case reflect.String:
+		log.Println("found string")
 		str := v.String()
 		buf.WriteString(strconv.Itoa(len(str)))
 		buf.WriteString(":")
 		buf.WriteString(str)
 
 	case reflect.Slice:
+		log.Println("found slice")
 		buf.WriteString("l")
 		for i := 0; i < v.Len(); i++ {
 			err := encodeValue(buf, v.Index(i))
@@ -41,6 +46,7 @@ func encodeValue(buf *bytes.Buffer, v reflect.Value) error {
 		buf.WriteString("e")
 
 	case reflect.Struct:
+		log.Println("found struct")
 		t := v.Type()
 		buf.WriteString("d")
 
@@ -65,6 +71,7 @@ func encodeValue(buf *bytes.Buffer, v reflect.Value) error {
 		buf.WriteString("e")
 
 	case reflect.Map:
+		log.Println("found map")
 		buf.WriteString("d")
 		iter := v.MapRange()
 		for iter.Next() {

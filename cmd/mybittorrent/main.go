@@ -55,7 +55,11 @@ func main() {
 		}
 
 		// hash info
+		log.Println("info")
+		fmt.Println(torrentFile.Info)
 		infoEncoded, err := bencode.Encode(torrentFile.Info)
+		log.Println("encoded info:")
+		fmt.Println(string(infoEncoded))
 		if err != nil {
 			fmt.Printf("error encoding info: %v", err)
 			return

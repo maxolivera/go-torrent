@@ -6,10 +6,10 @@ type MetaData struct {
 }
 
 type MetaInfo struct {
-	Pieces      string `bencode:"pieces"`
-	Name        string `bencode:"name"`
 	Length      int    `bencode:"length"`
+	Name        string `bencode:"name"`
 	PieceLength int    `bencode:"piece length"`
+	Pieces      string `bencode:"pieces"`
 }
 
 type TrackerResponse struct {
