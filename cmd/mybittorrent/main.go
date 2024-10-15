@@ -187,9 +187,9 @@ func main() {
 		}
 
 		// decode response
-		log.Println("bencoded string to be unmarshal: %s", string(body))
+		log.Printf("bencoded string to be unmarshal: %s", string(body))
 		var trackerResponse torrent.TrackerResponse
-		if err = bencode.Unmarshal(body, trackerResponse); err != nil {
+		if err = bencode.Unmarshal(body, &trackerResponse); err != nil {
 			fmt.Printf("error unmarshaling bencoded response: %v", err)
 			return
 		}
@@ -200,7 +200,7 @@ func main() {
 			ip := net.IP(peer[:4])
 			port := (int(peer[4]) << 8) | int(peer[5])
 
-			fmt.Printf("%v:%d", ip, port)
+			fmt.Printf("%v:%d\n", ip, port)
 		}
 	}
 }
