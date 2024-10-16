@@ -170,3 +170,120 @@ func Peers(file string) error {
 	return nil
 }
 
+func Handshake(file, connection string) error {
+	slog.Info("doing a Handshake!")
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return fmt.Errorf("error during file %q reading: %v", file, err)
+	}
+
+	// unmarshal torrent into MetaData
+	slog.Debug(fmt.Sprintf("starting unmarshalling of: %s", string(data)))
+	var torrentFile torrent.MetaData
+	if err = bencode.Unmarshal(data, &torrentFile); err != nil {
+		return fmt.Errorf("error during torrent unmarshaling: %v", err)
+	}
+
+	// MESSAGE
+	protocol := "BitTorrent protocol"
+
+	// 1. protocol length (1 byte)
+	protocolLen := len(protocol)
+	message := []byte{byte(protocolLen)}
+	slog.Info(
+		"creating message",
+		"current message length", len(message),
+		"field len", len(message), // kind of a hack
+		"field", "protocol len",
+		"value", string(message),
+	)
+
+	// 2. protocol string (19 byte)
+	message = append(message, []byte(protocol)...)
+	slog.Info(
+		"creating message",
+		"current message len", len(message),
+		"field len", len([]byte(protocol)),
+		"field", "protocol string",
+		"value", protocol,
+	)
+
+	// 3. reserved bytes
+	bytes := make([]byte, 8)
+	message = append(message, bytes...)
+	slog.Info(
+		"creating message",
+		"current message len", len(message),
+		"field len", len(bytes),
+		"field", "reserved bytes",
+		"value", string(bytes),
+	)
+
+	// 4. info hash
+	infoHash, err := getInfoHash(torrentFile)
+	if err != nil {
+		return err
+	}
+	message = append(message, infoHash...)
+	slog.Info(
+		"creating message",
+		"current message len", len(message),
+		"field len", len(infoHash),
+		"field", "info hash",
+		"value", string(infoHash),
+	)
+
+	// 5. peer id
+	peerID := make([]byte, 20)
+	if _, err := rand.Read(peerID); err != nil {
+		return fmt.Errorf("error generating peer ID: %v", err)
+	}
+	message = append(message, peerID...)
+	slog.Info(
+		"creating message",
+		"current message len", len(message),
+		"field len", len(peerID),
+		"field", "peer ID",
+		"value", string(peerID),
+	)
+
+	slog.Info("message created", "length", len(message), "message", string(message))
+
+	// buffer to hold response
+	response := make([]byte, len(message))
+	{
+		// open connection
+		conn, err := net.Dial("tcp", connection)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+
+		// send data
+		bytesSent, err := conn.Write(message)
+		if err != nil {
+			return err
+		}
+		if bytesSent != len(message) {
+			return fmt.Errorf("the message should have 68 bytes, instead it has: %d", len(message))
+		}
+
+		// read response
+		bytesReceived, err := conn.Read(response)
+		if err != nil {
+			return err
+		}
+
+		if bytesReceived != len(message) {
+			return fmt.Errorf("the response should have 68 bytes, instead it has: %d", len(message))
+		}
+	}
+
+	// extract peer_id
+	peerIdBytes := response[48:67]
+	responsePeerId := hex.EncodeToString(peerIdBytes)
+
+	fmt.Printf("Peer ID: %s\n", responsePeerId)
+
+	return nil
+}

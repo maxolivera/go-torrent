@@ -45,6 +45,15 @@ func main() {
 			fmt.Println(err)
 			return
 		}
+
+	case "handshake":
+		connection := args[2]
+		slog.Info("connection to be used", "connection", connection)
+		err := commands.Handshake(file, connection)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 	}
 }
 
