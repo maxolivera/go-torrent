@@ -274,13 +274,15 @@ func Handshake(file, connection string) error {
 			return err
 		}
 
+		slog.Info("got response", "length from read", bytesReceived, "length of response", len(response), "response", string(response))
+
 		if bytesReceived != len(message) {
 			return fmt.Errorf("the response should have 68 bytes, instead it has: %d", len(message))
 		}
 	}
 
 	// extract peer_id
-	peerIdBytes := response[48:67]
+	peerIdBytes := response[48:]
 	responsePeerId := hex.EncodeToString(peerIdBytes)
 
 	fmt.Printf("Peer ID: %s\n", responsePeerId)

@@ -75,7 +75,7 @@ func init() {
 	case DebugWarning:
 		logLevel = slog.LevelWarn
 	default:
-		logLevel = slog.LevelWarn
+		logLevel = slog.LevelError
 	}
 
 	logger := slog.New(slog.NewTextHandler(
@@ -83,6 +83,8 @@ func init() {
 		&slog.HandlerOptions{Level: logLevel},
 	))
 	slog.SetDefault(logger)
+
+	slog.Info("set log level", "level", logLevel)
 }
 
 type DebugType int
