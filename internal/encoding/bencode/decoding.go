@@ -3,6 +3,7 @@ package bencode
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"strconv"
 )
 
@@ -12,6 +13,8 @@ func Decode(data []byte) (interface{}, error) {
 }
 
 func decodeValue(reader *bytes.Reader) (interface{}, error) {
+	slog.Debug("starting decoding")
+	defer slog.Debug("end decoding")
 	b, err := reader.ReadByte()
 	if err != nil {
 		return nil, err
@@ -19,18 +22,23 @@ func decodeValue(reader *bytes.Reader) (interface{}, error) {
 
 	switch b {
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		slog.Debug("detected a string")
 		return readString(reader)
 
 	case 'i':
+		slog.Debug("detected an integer")
 		return readInteger(reader)
 
 	case 'l':
+		slog.Debug("detected a list")
 		return decodeList(reader)
 
 	case 'd':
+		slog.Debug("detected a dictionary")
 		return decodeDictionary(reader)
 
 	default:
+		slog.Error("unkown bencode type", "bencode type:", b)
 		return nil, fmt.Errorf("unkown bencode type: %c", b)
 	}
 }
@@ -50,6 +58,8 @@ func readString(reader *bytes.Reader) (string, error) {
 		return "", err
 	}
 
+	slog.Debug("reading string length", "length", length)
+
 	if length == 0 {
 		return "", nil
 	}
@@ -59,6 +69,8 @@ func readString(reader *bytes.Reader) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	slog.Debug("resulting string", "length", length, "string", string(strBytes))
 
 	return string(strBytes), nil
 }
@@ -79,6 +91,8 @@ func readInteger(reader *bytes.Reader) (int, error) {
 		return 0, err
 	}
 
+	slog.Debug("resulting int", "int", intValue)
+
 	return intValue, nil
 }
 
@@ -91,6 +105,7 @@ func decodeList(reader *bytes.Reader) ([]interface{}, error) {
 			return nil, err
 		}
 		if peekByte == 'e' {
+			slog.Debug("detected end of list")
 			break // end of list
 		}
 		reader.UnreadByte() // go back
@@ -99,8 +114,10 @@ func decodeList(reader *bytes.Reader) ([]interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
+		slog.Debug("adding item to list", "item", value)
 		list = append(list, value)
 	}
+	slog.Debug("list completed", "items", list)
 	return list, nil
 }
 
@@ -115,6 +132,7 @@ func decodeDictionary(reader *bytes.Reader) (map[string]interface{}, error) {
 			return nil, err
 		}
 		if peekByte == 'e' {
+			slog.Debug("detected end of dictionary")
 			break // end of list
 		}
 
@@ -129,10 +147,14 @@ func decodeDictionary(reader *bytes.Reader) (map[string]interface{}, error) {
 			return nil, err
 		}
 
+		slog.Debug("got key", "key", key)
+
 		value, err := decodeValue(reader)
 		if err != nil {
 			return nil, err
 		}
+
+		slog.Debug("got value", "value", value)
 
 		dict[key] = value
 	}

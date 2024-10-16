@@ -3,14 +3,14 @@ package bencode
 import (
 	"bytes"
 	"fmt"
-	"log"
+	"log/slog"
 	"reflect"
 	"strconv"
 )
 
 // Supports <Int, String, List, Dict> bencode formats
 func Encode(element interface{}) ([]byte, error) {
-	log.Println("starting encoding")
+	slog.Debug("starting encoding")
 	var buf bytes.Buffer
 	err := encodeValue(&buf, reflect.ValueOf(element))
 	if err != nil {
@@ -22,20 +22,21 @@ func Encode(element interface{}) ([]byte, error) {
 func encodeValue(buf *bytes.Buffer, v reflect.Value) error {
 	switch v.Kind() {
 	case reflect.Int:
-		log.Println("found int")
+		num := strconv.FormatInt(v.Int(), 10)
+		slog.Debug("found int", "int", num)
 		buf.WriteString("i")
-		buf.WriteString(strconv.FormatInt(v.Int(), 10))
+		buf.WriteString(num)
 		buf.WriteString("e")
 
 	case reflect.String:
-		log.Println("found string")
 		str := v.String()
+		slog.Debug("found string", "length", len(str), "string", str)
 		buf.WriteString(strconv.Itoa(len(str)))
 		buf.WriteString(":")
 		buf.WriteString(str)
 
 	case reflect.Slice:
-		log.Println("found slice")
+		slog.Debug("found slice, items:")
 		buf.WriteString("l")
 		for i := 0; i < v.Len(); i++ {
 			err := encodeValue(buf, v.Index(i))
@@ -46,7 +47,7 @@ func encodeValue(buf *bytes.Buffer, v reflect.Value) error {
 		buf.WriteString("e")
 
 	case reflect.Struct:
-		log.Println("found struct")
+		slog.Debug("found struct")
 		t := v.Type()
 		buf.WriteString("d")
 
@@ -56,6 +57,7 @@ func encodeValue(buf *bytes.Buffer, v reflect.Value) error {
 			if tag == "" {
 				tag = field.Name
 			}
+			slog.Debug("encoding field", "field", field.Name, "string", tag, "length", len(tag))
 
 			// encode field name
 			buf.WriteString(strconv.Itoa(len(tag)))
@@ -71,7 +73,7 @@ func encodeValue(buf *bytes.Buffer, v reflect.Value) error {
 		buf.WriteString("e")
 
 	case reflect.Map:
-		log.Println("found map")
+		slog.Debug("found map")
 		buf.WriteString("d")
 		iter := v.MapRange()
 		for iter.Next() {
@@ -91,6 +93,7 @@ func encodeValue(buf *bytes.Buffer, v reflect.Value) error {
 
 
 	default:
+		slog.Error("tried to encode unsupported type", "type", v.Kind())
 		return fmt.Errorf("error unsupported type %v", v.Kind())
 	}
 	return nil

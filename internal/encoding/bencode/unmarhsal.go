@@ -3,14 +3,29 @@ package bencode
 import (
 	"bytes"
 	"fmt"
-	"log"
+	"log/slog"
 	"reflect"
 )
 
 func Unmarshal(data []byte, v interface{}) error {
 	reader := bytes.NewReader(data)
 	val := reflect.ValueOf(v)
-	return unmarshalValue(reader, val.Elem())
+
+	slog.Debug("unmarshaling", "kind", val.Kind())
+	// check if pointer
+	if val.Kind() != reflect.Ptr {
+		return fmt.Errorf("error expected a pointer but got %s", val.Kind())
+	}
+
+	elem := val.Elem()
+
+	slog.Debug("unmarshaling", "element kind", elem.Kind())
+	// check if pointer points to a struct
+	if elem.Kind() != reflect.Struct {
+		return fmt.Errorf("error expected a pointer to a struct but got pointer to %s", elem.Kind())
+	}
+
+	return unmarshalValue(reader, elem)
 }
 
 func unmarshalValue(reader *bytes.Reader, v reflect.Value) error {
@@ -21,6 +36,7 @@ func unmarshalValue(reader *bytes.Reader, v reflect.Value) error {
 
 	switch b {
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		slog.Debug("unmarhalling string")
 		str, err := readString(reader)
 		if err != nil {
 			return err
@@ -28,6 +44,7 @@ func unmarshalValue(reader *bytes.Reader, v reflect.Value) error {
 		v.SetString(str)
 
 	case 'i':
+		slog.Debug("unmarhalling integer")
 		num, err := readInteger(reader)
 		if err != nil {
 			return err
@@ -35,6 +52,7 @@ func unmarshalValue(reader *bytes.Reader, v reflect.Value) error {
 		v.SetInt(int64(num))
 
 	case 'l':
+		slog.Debug("unmarhalling list into slice")
 		// list
 		v.Set(reflect.MakeSlice(v.Type(), 0, 0)) // initialize empty array
 		for {
@@ -57,13 +75,12 @@ func unmarshalValue(reader *bytes.Reader, v reflect.Value) error {
 		}
 
 	case 'd':
-		log.Printf("Attempting to unmarshal a dictionary into type: %v, kind %v", v.Type(), v.Kind())
+		slog.Debug("unmarshalling dictionary", "type", v.Type(), "kind", v.Kind())
 		// Check if the target value is a struct
 		if v.Kind() == reflect.Struct {
 			t := v.Type()
-			log.Println("struct fields:")
 			for i := 0; i < t.NumField(); i++ {
-				log.Printf("Field: %s", t.Field(i).Name)
+				slog.Debug("found struct field", "Field", t.Field(i).Name)
 			}
 
 			for {
@@ -84,7 +101,7 @@ func unmarshalValue(reader *bytes.Reader, v reflect.Value) error {
 					return err
 				}
 
-				log.Printf("found key: %s", key)
+				slog.Debug("found key", "key", key)
 
 				// find the field using the bencode tag
 				var field reflect.StructField
@@ -102,7 +119,7 @@ func unmarshalValue(reader *bytes.Reader, v reflect.Value) error {
 				}
 
 				if !found {
-					log.Printf("skipping unkown field: %s", key)
+					slog.Debug("skipping unkown field", "key", key)
 					if err = skipValue(reader); err != nil {
 						return err
 					}
