@@ -140,7 +140,7 @@ func Handshake(file, connection string) error {
 
 // file: name of .torrent file
 // urlPieceOutput: where to store the piece downloaded
-func DownloadPiece(file, urlPieceOutput string) error {
+func DownloadPiece(file, urlPieceOutput string, pieceNumber int) error {
 	slog.Info("downloading a piece", "output", urlPieceOutput)
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -178,7 +178,7 @@ func DownloadPiece(file, urlPieceOutput string) error {
 		return err
 	}
 
-	downloadedFile, err := peer.DownloadPieces(conn, torrentFile)
+	downloadedFile, err := peer.DownloadPiece(conn, torrentFile, pieceNumber)
 	if err != nil {
 		return err
 	}

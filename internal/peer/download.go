@@ -1,10 +1,10 @@
 package peer
 
 import (
-	"bytes"
-	"crypto/sha1"
+	// "bytes"
+	// "crypto/sha1"
 	"encoding/binary"
-	"encoding/hex"
+	// "encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -25,7 +25,7 @@ const BlockSize = 16 * 1024 // 16 kB
 // downloaded file
 
 // Returns the torrent file
-func DownloadPieces(conn net.Conn, torrentFile torrent.MetaData) ([]byte, error) {
+func DownloadPiece(conn net.Conn, torrentFile torrent.MetaData, pieceNumber int) ([]byte, error) {
 	// NOTE(maolivera): Peer messages consist of message length (it does not
 	// include the bytes used to declare the length itself) prefix (4 bytes),
 	// message id (1 byte) and a payload (variable size)
@@ -71,96 +71,109 @@ func DownloadPieces(conn net.Conn, torrentFile torrent.MetaData) ([]byte, error)
 	// - begin (u32): zero-based byte offset wihtin the piece
 	// - block (variable): data for the piece
 
-	file := make([]byte, torrentFile.Info.Length)
 
-	// cache all pieces' hash
-	h := sha1.New()
-	pieces := []byte(torrentFile.Info.Pieces)
+	/*
+		// avoid hash for now
 
-	numPieces := len(pieces) / 20
-	piecesHashes := make([][]byte, numPieces)
+		// cache all pieces' hash
+		h := sha1.New()
+		pieces := []byte(torrentFile.Info.Pieces)
 
-	for i := 0; i < numPieces; i++ {
-		pieceHash := pieces[i*20 : (i+1)*20]
-		piecesHashes[i] = pieceHash
+		numPieces := len(pieces) / 20
+		piecesHashes := make([][]byte, numPieces)
+
+		for i := 0; i < numPieces; i++ {
+			pieceHash := pieces[i*20 : (i+1)*20]
+			piecesHashes[i] = pieceHash
+		}
+	*/
+
+	totalPieces := torrentFile.Info.Length / torrentFile.Info.PieceLength
+	if torrentFile.Info.Length % torrentFile.Info.PieceLength != 0{
+		totalPieces++
 	}
 
-	// for each piece
-	totalPieces := torrentFile.Info.Length/torrentFile.Info.PieceLength + 1
-	slog.Debug("starting pieces downloading", "total pieces", totalPieces)
-	for j := 0; j < totalPieces; j++ {
-		slog.Debug(fmt.Sprintf("asking for piece %d/%d", j+1, totalPieces))
-		var blocks int
-		var currentPieceLength int
+	// slog.Debug(fmt.Sprintf("asking for piece %d/%d", pieceNumber+1, totalPieces))
+	var blocks int
+	var currentPieceLength int
 
-		if j != totalPieces-1 { // not the last piece
-			currentPieceLength = torrentFile.Info.PieceLength
-		} else { // last piece, which may have different size
-			currentPieceLength = torrentFile.Info.Length % torrentFile.Info.PieceLength
+	if pieceNumber != totalPieces - 1{ // not the last piece
+		currentPieceLength = torrentFile.Info.PieceLength
+	} else { // last piece, which may have different size
+		currentPieceLength = torrentFile.Info.Length % torrentFile.Info.PieceLength
+	}
+	blocks = currentPieceLength / BlockSize
+
+	file := make([]byte, currentPieceLength)
+
+	if currentPieceLength%BlockSize != 0 {
+		blocks++
+	}
+
+	slog.Debug("downloading piece", "total pieces", totalPieces, "piece number", pieceNumber + 1, "piece length", currentPieceLength)
+
+	for i := 0; i < blocks; i++ {
+		slog.Debug(fmt.Sprintf("asking for block %d/%d", i+1, blocks))
+
+		index := uint32(i)
+		begin := uint32(i * BlockSize)
+		var length uint32
+		if i == blocks-1 && currentPieceLength%BlockSize != 0 { // last block, may have different size
+			length += uint32(currentPieceLength % BlockSize)
+		} else {
+			length += uint32(BlockSize)
 		}
-		blocks = currentPieceLength / BlockSize
 
-		if currentPieceLength%BlockSize != 0 {
-			blocks++
+		slog.Debug("block parameters", "index", index, "begin", begin, "length", length)
+
+		// create and send request for current block
+		payload := make([]byte, 12)
+		binary.BigEndian.PutUint32(payload[:4], index)
+		binary.BigEndian.PutUint32(payload[4:8], begin)
+		binary.BigEndian.PutUint32(payload[8:12], length)
+
+		buffer, err = createMessage(Request, payload)
+		if err != nil {
+			return nil, err
 		}
 
-		for i := 0; i < blocks; i++ {
-			slog.Debug(fmt.Sprintf("asking for block %d/%d", i+1, blocks))
-
-			index := uint32(i)
-			begin := uint32(i * BlockSize)
-			var length uint32
-			if i == blocks-1 && currentPieceLength%BlockSize != 0 { // last block, may have different size
-				length += uint32(currentPieceLength % BlockSize)
-			} else {
-				length += uint32(BlockSize)
+		if n, err := conn.Write(buffer); err != nil {
+			if n != len(buffer) {
+				return nil, fmt.Errorf("incomplete message sent, expected %d, sent %d", len(buffer), n)
 			}
+			return nil, err
+		}
 
-			slog.Debug("block parameters", "index", index, "begin", begin, "length", length)
+		// wait for response
+		response, responseLength, err := receiveAndValidateMessage(conn, Piece)
+		if err != nil {
+			return nil, err
+		}
 
-			// create and send request for current block
-			payload := make([]byte, 12)
-			binary.BigEndian.PutUint32(payload[:4], index)
-			binary.BigEndian.PutUint32(payload[4:8], begin)
-			binary.BigEndian.PutUint32(payload[8:12], length)
+		// pieceIndex := binary.BigEndian.Uint32(buffer[5:9])
+		// begin := binary.BigEndian.Uint32(buffer[9:13])
 
-			buffer, err = createMessage(Request, payload)
-			if err != nil {
-				return nil, err
-			}
+		fileBlockStart := int(begin)
+		fileBlockEnd := fileBlockStart + int(length)
 
-			if n, err := conn.Write(buffer); err != nil {
-				if n != len(buffer) {
-					return nil, fmt.Errorf("incomplete message sent, expected %d, sent %d", len(buffer), n)
-				}
-				return nil, err
-			}
-
-			// wait for response
-			response, responseLength, err := receiveAndValidateMessage(conn, Piece)
-			if err != nil {
-				return nil, err
-			}
-
-			// pieceIndex := binary.BigEndian.Uint32(buffer[5:9])
-			// begin := binary.BigEndian.Uint32(buffer[9:13])
-
-			fileBlockStart := j*currentPieceLength + int(begin)
-			fileBlockEnd := fileBlockStart + int(length)
-
-			copy(file[fileBlockStart:fileBlockEnd], response[13:responseLength])
-			slog.Debug("got block", "wrote until byte number", fileBlockEnd)
-			slog.Debug("got block", "piece", j+1, "block", i+1)
-			slog.Debug("got block", "first 100 chars", string(file[fileBlockStart:fileBlockStart+100]))
-			if i > 0 {
+		copy(file[fileBlockStart:fileBlockEnd], response[13:responseLength])
+		slog.Debug("got block", "wrote until byte number", fileBlockEnd)
+		slog.Debug("got block", "piece", pieceNumber+1, "block", i+1)
+		slog.Debug("got block", "first 100 chars", string(file[fileBlockStart:fileBlockStart+100]))
+		if i > 0 {
 			slog.Debug("got block", "blocks appended (10) chars", string(file[fileBlockStart-10:fileBlockStart+10]))
-			}
-			slog.Debug("got block", "last 100 chars", string(file[fileBlockEnd-100:fileBlockEnd]))
 		}
+
+		slog.Debug("got block", "last 100 chars", string(file[fileBlockEnd-100:fileBlockEnd]))
+	}
+
+	filePieceStart := pieceNumber * currentPieceLength
+	filePieceEnd := filePieceStart + currentPieceLength
+	slog.Debug("get piece", "start", filePieceStart, "end", filePieceEnd)
+	/*
+			// do not calculate hash
+
 		h.Reset()
-		filePieceStart := j * currentPieceLength
-		filePieceEnd := filePieceStart + currentPieceLength
-		slog.Debug("get piece", "start", filePieceStart, "end", filePieceEnd)
 		_, err = h.Write(file[filePieceStart:filePieceEnd])
 		if err != nil {
 			return nil, fmt.Errorf("error calculating SHA1 hash: %v", err)
@@ -180,8 +193,8 @@ func DownloadPieces(conn net.Conn, torrentFile torrent.MetaData) ([]byte, error)
 			)
 			return nil, err
 		}
-		slog.Info(fmt.Sprintf("successfully get piece %d/%d", j+1, totalPieces))
-	}
+	*/
+	slog.Info(fmt.Sprintf("successfully get piece %d/%d", pieceNumber+1, totalPieces))
 
 	return file, nil
 }
