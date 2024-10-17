@@ -1,19 +1,16 @@
 package commands
 
 import (
-	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
+	"math/rand"
 	"net"
-	"net/http"
-	"net/url"
 	"os"
-	"strconv"
 
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/encoding/bencode"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/peer"
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/torrent"
 )
 
@@ -44,7 +41,7 @@ func Info(file string) error {
 	}
 
 	// hash info
-	hashSum, err := getInfoHash(torrentFile)
+	hashSum, err := torrent.GetInfoHash(torrentFile)
 	if err != nil {
 		return err
 	}
@@ -91,82 +88,15 @@ func Peers(file string) error {
 		return fmt.Errorf("error during torrent unmarshaling: %v", err)
 	}
 
-	// made GET request to tracker url
-	// query params:
-	queryParams := make([]string, 7)
-
-	// info_hash
-	hashSum, err := getInfoHash(torrentFile)
+	peers, err := peer.GetPeers(torrentFile)
 	if err != nil {
 		return err
 	}
-	queryParams[0] = "info_hash=" + url.QueryEscape(string(hashSum)) + "&"
 
-	// peer_id
-	bytes := make([]byte, 10)
-	if _, err := rand.Read(bytes); err != nil {
-		return fmt.Errorf("error generating peer_id: %v", err)
-	}
-	peer_id := hex.EncodeToString(bytes)
-	queryParams[1] = "peer_id=" + url.QueryEscape(peer_id) + "&"
-
-	// port (6881)
-	queryParams[2] = "port=6881&"
-
-	// uploaded
-	queryParams[3] = "uploaded=0&"
-
-	// downloaded
-	queryParams[4] = "downloaded=0&"
-
-	// left
-	queryParams[5] = "left=" + strconv.Itoa(torrentFile.Info.Length) + "&"
-
-	// compact (1)
-	queryParams[6] = "compact=1"
-
-	url := torrentFile.Announce + "?"
-	for _, param := range queryParams {
-		url += param
+	for _, peer := range peers {
+		fmt.Println(peer)
 	}
 
-	slog.Info(fmt.Sprint("Request URL:", url))
-
-	// get request
-	resp, err := http.Get(url)
-	if err != nil {
-		return fmt.Errorf("error making GET request: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("tracker responded with non OK status: %d", resp.StatusCode)
-	}
-
-	var body []byte
-
-	{
-		body, err = io.ReadAll(resp.Body)
-		defer resp.Body.Close()
-		if err != nil {
-			return fmt.Errorf("error reading response body: %v", err)
-		}
-	}
-
-	// decode response
-	slog.Debug(fmt.Sprintf("bencoded string to be unmarshal: %s", string(body)))
-	var trackerResponse torrent.TrackerResponse
-	if err = bencode.Unmarshal(body, &trackerResponse); err != nil {
-		return fmt.Errorf("error unmarshaling bencoded response: %v", err)
-	}
-
-	// print peers
-	for i := 0; i < len(trackerResponse.Peers); i += 6 {
-		peer := trackerResponse.Peers[i : i+6]
-
-		ip := net.IP(peer[:4])
-		port := (int(peer[4]) << 8) | int(peer[5])
-
-		fmt.Printf("%v:%d\n", ip, port)
-	}
 	return nil
 }
 
@@ -184,108 +114,80 @@ func Handshake(file, connection string) error {
 		return fmt.Errorf("error during torrent unmarshaling: %v", err)
 	}
 
-	// MESSAGE
-	protocol := "BitTorrent protocol"
-
-	// 1. protocol length (1 byte)
-	protocolLen := len(protocol)
-	message := []byte{byte(protocolLen)}
-	slog.Info(
-		"creating message",
-		"current message length", len(message),
-		"field len", len(message), // kind of a hack
-		"field", "protocol len",
-		"value", string(message),
-	)
-
-	// 2. protocol string (19 byte)
-	message = append(message, []byte(protocol)...)
-	slog.Info(
-		"creating message",
-		"current message len", len(message),
-		"field len", len([]byte(protocol)),
-		"field", "protocol string",
-		"value", protocol,
-	)
-
-	// 3. reserved bytes
-	bytes := make([]byte, 8)
-	message = append(message, bytes...)
-	slog.Info(
-		"creating message",
-		"current message len", len(message),
-		"field len", len(bytes),
-		"field", "reserved bytes",
-		"value", string(bytes),
-	)
-
-	// 4. info hash
-	infoHash, err := getInfoHash(torrentFile)
-	if err != nil {
-		return err
-	}
-	message = append(message, infoHash...)
-	slog.Info(
-		"creating message",
-		"current message len", len(message),
-		"field len", len(infoHash),
-		"field", "info hash",
-		"value", string(infoHash),
-	)
-
-	// 5. peer id
-	peerID := make([]byte, 20)
-	if _, err := rand.Read(peerID); err != nil {
-		return fmt.Errorf("error generating peer ID: %v", err)
-	}
-	message = append(message, peerID...)
-	slog.Info(
-		"creating message",
-		"current message len", len(message),
-		"field len", len(peerID),
-		"field", "peer ID",
-		"value", string(peerID),
-	)
-
-	slog.Info("message created", "length", len(message), "message", string(message))
-
-	// buffer to hold response
-	response := make([]byte, len(message))
+	var responsePeerId string
 	{
-		// open connection
 		conn, err := net.Dial("tcp", connection)
 		if err != nil {
 			return err
 		}
 		defer conn.Close()
 
-		// send data
-		bytesSent, err := conn.Write(message)
-		if err != nil {
-			return err
-		}
-		if bytesSent != len(message) {
-			return fmt.Errorf("the message should have 68 bytes, instead it has: %d", len(message))
-		}
-
-		// read response
-		bytesReceived, err := conn.Read(response)
+		// handshake
+		response, err := peer.Handshake(conn, torrentFile)
 		if err != nil {
 			return err
 		}
 
-		slog.Info("got response", "length from read", bytesReceived, "length of response", len(response), "response", string(response))
-
-		if bytesReceived != len(message) {
-			return fmt.Errorf("the response should have 68 bytes, instead it has: %d", len(message))
-		}
+		// extract peer_id
+		peerIdBytes := response[48:]
+		responsePeerId = hex.EncodeToString(peerIdBytes)
 	}
 
-	// extract peer_id
-	peerIdBytes := response[48:]
-	responsePeerId := hex.EncodeToString(peerIdBytes)
-
 	fmt.Printf("Peer ID: %s\n", responsePeerId)
+
+	return nil
+}
+
+// file: name of .torrent file
+// urlPieceOutput: where to store the piece downloaded
+func DownloadPiece(file, urlPieceOutput string) error {
+	slog.Info("downloading a piece", "output", urlPieceOutput)
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return fmt.Errorf("error during file %q reading: %v", file, err)
+	}
+
+	// unmarshal torrent into MetaData
+	slog.Debug(fmt.Sprintf("starting unmarshalling of: %s", string(data)))
+	var torrentFile torrent.MetaData
+	if err = bencode.Unmarshal(data, &torrentFile); err != nil {
+		return fmt.Errorf("error during torrent unmarshaling: %v", err)
+	}
+
+	// get peers
+
+	peers, err := peer.GetPeers(torrentFile)
+	if err != nil {
+		return err
+	}
+
+	// select random peer
+
+	connection := peers[rand.Intn(len(peers))]
+	slog.Info("peer selected to do connection", "peer", connection)
+
+	conn, err := net.Dial("tcp", connection)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	// handshake
+	_, err = peer.Handshake(conn, torrentFile)
+	if err != nil {
+		return err
+	}
+
+	downloadedFile, err := peer.DownloadPieces(conn, torrentFile)
+	if err != nil {
+		return err
+	}
+
+	if err = os.WriteFile(urlPieceOutput, downloadedFile, 0644); err != nil {
+		return err
+	}
+
+	slog.Info("successfully downloaded piece")
 
 	return nil
 }

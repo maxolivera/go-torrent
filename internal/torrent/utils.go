@@ -1,14 +1,13 @@
-package commands
+package torrent
 
 import (
 	"crypto/sha1"
 	"fmt"
 
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/encoding/bencode"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/torrent"
 )
 
-func getInfoHash(torrentFile torrent.MetaData) ([]byte, error) {
+func GetInfoHash(torrentFile MetaData) ([]byte, error) {
 	infoEncoded, err := bencode.Encode(torrentFile.Info)
 	if err != nil {
 		return nil, fmt.Errorf("error encoding info: %v", err)

@@ -9,6 +9,10 @@ import (
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/commands"
 )
 
+// global variables, set during init(), used in main()
+var debugLevel DebugType
+var output string
+
 func main() {
 	args := flag.Args()
 
@@ -54,6 +58,13 @@ func main() {
 			fmt.Println(err)
 			return
 		}
+
+	case "download_piece":
+		err := commands.DownloadPiece(file, output)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 	}
 }
 
@@ -61,8 +72,8 @@ func main() {
 
 func init() {
 	// get log level from flags
-	var debugLevel DebugType
 	flag.Var(&debugLevel, "debug", "Debug level (info, debug, warning)")
+	flag.StringVar(&output, "o", "default", "where to output what is downloaded")
 	flag.Parse()
 
 	// configure logger
