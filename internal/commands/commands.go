@@ -127,7 +127,7 @@ func Handshake(file, connection string) error {
 
 // file: name of .torrent file
 // urlPieceOutput: where to store the piece downloaded
-func DownloadPiece(file, urlPieceOutput string, pieceNumber int) error {
+func DownloadPiece(file, urlPieceOutput string, pieceNumber, totalWorkers int) error {
 	slog.Info("downloading a piece", "output", urlPieceOutput)
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -165,7 +165,9 @@ func DownloadPiece(file, urlPieceOutput string, pieceNumber int) error {
 		return err
 	}
 
-	downloadedPiece, err := torrent.DownloadPiece(conn, pieceNumber)
+	slog.Info("Starting to download piece. Rembember that both piece id and block id are 0 indexed (first is 0, not 1)")
+
+	downloadedPiece, err := torrent.DownloadPiece(conn, pieceNumber, totalWorkers)
 	if err != nil {
 		return err
 	}

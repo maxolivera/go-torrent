@@ -12,6 +12,7 @@ import (
 
 // global variables, set during init(), used in main()
 var debugLevel DebugType
+var totalWorkers int
 
 func main() {
 	args := flag.Args()
@@ -81,7 +82,7 @@ func main() {
 			return
 		}
 
-		err = commands.DownloadPiece(file, *output, pieceNumber)
+		err = commands.DownloadPiece(file, *output, pieceNumber, totalWorkers)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -94,6 +95,7 @@ func main() {
 func init() {
 	// get log level from flags
 	flag.Var(&debugLevel, "debug", "Debug level (info, debug, warning)")
+	flag.IntVar(&totalWorkers, "w", 5, "Total amount of concurrent block downloads")
 	flag.Parse()
 
 	// configure logger

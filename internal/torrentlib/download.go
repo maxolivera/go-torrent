@@ -1,11 +1,15 @@
 package torrentlib
 
 import (
+	"bytes"
+	"crypto/sha1"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"sync"
+	"time"
 )
 
 // NOTE(maolivera): All current implementations use 2^14 (16 kiB),
@@ -19,8 +23,8 @@ const BlockSize = 16 * 1024 // 16 kB
 // it may be beneficial to write each piece into disk and not hold the whole
 // downloaded file
 
-// Returns the torrent file
-func (torrent *Torrent) DownloadPiece(conn net.Conn, pieceNumber int) ([]byte, error) {
+// Returns the pieceNumber piece
+func (torrent *Torrent) DownloadPiece(conn net.Conn, pieceNumber int, totalWorkers int) ([]byte, error) {
 	// NOTE(maolivera): Peer messages consist of message length (it does not
 	// include the bytes used to declare the length itself) prefix (4 bytes),
 	// message id (1 byte) and a payload (variable size)
@@ -65,7 +69,7 @@ func (torrent *Torrent) DownloadPiece(conn net.Conn, pieceNumber int) ([]byte, e
 	// - block (variable): data for the piece
 
 	// slog.Debug(fmt.Sprintf("asking for piece %d/%d", pieceNumber+1, totalPieces))
-	var blocks int
+	var totalBlocks int
 	var currentPieceLength int
 
 	// NOTE(maolivera): Pieces are 0 indexed, so last piece is totalPieces - 1
@@ -76,16 +80,94 @@ func (torrent *Torrent) DownloadPiece(conn net.Conn, pieceNumber int) ([]byte, e
 	}
 	file := make([]byte, currentPieceLength)
 
-	blocks = currentPieceLength / BlockSize
+	totalBlocks = currentPieceLength / BlockSize
 
 	if currentPieceLength%BlockSize != 0 {
-		blocks++
+		totalBlocks++
 	}
 
-	slog.Debug("downloading piece", "piece number", pieceNumber+1, "piece length", currentPieceLength)
+	var wg sync.WaitGroup
+	blocksChannel := make(chan int, totalBlocks)
+	errorsChannel := make(chan error, totalWorkers)
 
-	for i := 0; i < blocks; i++ {
-		slog.Debug(fmt.Sprintf("asking for block %d/%d", i+1, blocks))
+	slog.Info("total workers in use", "totalWorkers", totalWorkers)
+	slog.Info("starting to download piece", "pieceNumber", pieceNumber, "pieceLength", currentPieceLength, "totalBlocks", totalBlocks)
+	startTime := time.Now()
+
+	// NOTE(maolivera): Optional: To improve download speeds, you can consider
+	// pipelining your requests. BitTorrent Economics Paper recommends having
+	// 5 requests pending at once, to avoid a delay between blocks being sent.
+
+	for w := 1; w <= totalWorkers; w++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			err := downloadBlock(
+				w, blocksChannel,
+				conn, totalBlocks, pieceNumber, currentPieceLength,
+				file,
+			)
+			if err != nil {
+				errorsChannel <- err
+			}
+		}()
+	}
+
+	for j := 0; j < totalBlocks; j++ {
+		blocksChannel <- j
+	}
+	close(blocksChannel)
+
+	// wait for all workers and close error channel
+	go func() {
+		wg.Wait()
+		close(errorsChannel)
+	}()
+
+	for err := range errorsChannel {
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	totalTime := time.Since(startTime)
+
+	slog.Info("successfully get piece", "totalPieces", torrent.TotalPieces, "pieceNumber", pieceNumber, "totalTime", totalTime)
+
+	// check that hash is the same)
+	h := sha1.New()
+	_, err = h.Write(file)
+	if err != nil {
+		return nil, err
+	}
+	currentPieceHash := h.Sum(nil)
+	slog.Debug(
+		"piece hash",
+		"pieceNumber", pieceNumber,
+		"expected", fmt.Sprintf("%x", torrent.PiecesHash[pieceNumber]),
+		"current", fmt.Sprintf("%x", currentPieceHash),
+	)
+	if !bytes.Equal(torrent.PiecesHash[pieceNumber], currentPieceHash) {
+		return nil, fmt.Errorf("hashes are different, expected %x got %x", torrent.PiecesHash[pieceNumber], currentPieceHash)
+	}
+
+	return file, nil
+}
+
+// TODO(maolivera): Maybe the channel for holding errors should be a struct
+// that holds the error itself and the block, and then try to download the block after?
+
+// NOTE(maolivera): From documentation: Multiple goroutines may invoke methods on a Conn simultaneously.
+// https://pkg.go.dev/net#Conn
+
+func downloadBlock(
+	id int, blockNum <-chan int,
+	conn net.Conn, totalBlocks, pieceNumber, pieceLength int,
+	fileBuffer []byte,
+) error {
+	for i := range blockNum {
+		slog.Debug("asking for block", "worker", id, "block", blockNum)
 
 		// payload:
 		// - index (u32): zero-based piece index
@@ -95,13 +177,13 @@ func (torrent *Torrent) DownloadPiece(conn net.Conn, pieceNumber int) ([]byte, e
 		index := uint32(pieceNumber)
 		begin := uint32(i * BlockSize)
 		var length uint32
-		if i == blocks-1 && currentPieceLength%BlockSize != 0 { // last block, may have different size
-			length = uint32(currentPieceLength % BlockSize)
+		if i == totalBlocks-1 && pieceLength%BlockSize != 0 { // last block, may have different size
+			length = uint32(pieceLength % BlockSize)
 		} else {
 			length = uint32(BlockSize)
 		}
 
-		slog.Debug("block payload", "piece index", index, "begin", begin, "length", length)
+		slog.Debug("block payload", "worker", id, "piece index", index, "begin", begin, "length", length)
 
 		// create and send request for current block
 		payload := make([]byte, 12)
@@ -109,22 +191,22 @@ func (torrent *Torrent) DownloadPiece(conn net.Conn, pieceNumber int) ([]byte, e
 		binary.BigEndian.PutUint32(payload[4:8], begin)
 		binary.BigEndian.PutUint32(payload[8:12], length)
 
-		buffer, err = createMessage(Request, payload)
+		buffer, err := createMessage(Request, payload)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		if n, err := conn.Write(buffer); err != nil {
 			if n != len(buffer) {
-				return nil, fmt.Errorf("incomplete message sent, expected %d, sent %d", len(buffer), n)
+				return fmt.Errorf("incomplete message sent, expected %d, sent %d", len(buffer), n)
 			}
-			return nil, err
+			return err
 		}
 
 		// wait for response
 		response, responseLength, err := receiveAndValidateMessage(conn, Piece)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		// pieceIndex := binary.BigEndian.Uint32(buffer[5:9])
@@ -133,19 +215,10 @@ func (torrent *Torrent) DownloadPiece(conn net.Conn, pieceNumber int) ([]byte, e
 		fileBlockStart := int(begin)
 		fileBlockEnd := fileBlockStart + int(length)
 
-		copy(file[fileBlockStart:fileBlockEnd], response[13:responseLength])
-		slog.Debug("got block", "wrote until byte number", fileBlockEnd)
-		slog.Debug("got block", "piece", pieceNumber+1, "block", i+1)
-		slog.Debug("got block", "first 100 chars", string(file[fileBlockStart:fileBlockStart+100]))
-		if i > 0 {
-			slog.Debug("got block", "blocks appended (10) chars", string(file[fileBlockStart-10:fileBlockStart+10]))
-		}
-
-		slog.Debug("got block", "last 100 chars", string(file[fileBlockEnd-100:fileBlockEnd]))
+		copy(fileBuffer[fileBlockStart:fileBlockEnd], response[13:responseLength])
+		slog.Debug("got block", "piece", pieceNumber, "block", i)
 	}
-
-	slog.Info(fmt.Sprintf("successfully get piece %d/%d", pieceNumber+1, torrent.TotalPieces))
-	return file, nil
+	return nil
 }
 
 func receiveAndValidateMessage(conn net.Conn, expectedMessageType PeerMessage) ([]byte, int, error) {
