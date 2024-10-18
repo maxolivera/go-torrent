@@ -178,12 +178,12 @@ func DownloadPiece(file, urlPieceOutput string, pieceNumber int) error {
 		return err
 	}
 
-	downloadedFile, err := peer.DownloadPiece(conn, torrentFile, pieceNumber)
+	downloadedPiece, err := peer.DownloadPiece(conn, torrentFile, pieceNumber)
 	if err != nil {
 		return err
 	}
 
-	if err = os.WriteFile(urlPieceOutput, downloadedFile, 0644); err != nil {
+	if err = os.WriteFile(urlPieceOutput, downloadedPiece, 0644); err != nil {
 		return err
 	}
 

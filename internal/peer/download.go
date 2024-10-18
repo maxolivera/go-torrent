@@ -71,7 +71,6 @@ func DownloadPiece(conn net.Conn, torrentFile torrent.MetaData, pieceNumber int)
 	// - begin (u32): zero-based byte offset wihtin the piece
 	// - block (variable): data for the piece
 
-
 	/*
 		// avoid hash for now
 
@@ -89,7 +88,7 @@ func DownloadPiece(conn net.Conn, torrentFile torrent.MetaData, pieceNumber int)
 	*/
 
 	totalPieces := torrentFile.Info.Length / torrentFile.Info.PieceLength
-	if torrentFile.Info.Length % torrentFile.Info.PieceLength != 0{
+	if torrentFile.Info.Length%torrentFile.Info.PieceLength != 0 {
 		totalPieces++
 	}
 
@@ -97,34 +96,41 @@ func DownloadPiece(conn net.Conn, torrentFile torrent.MetaData, pieceNumber int)
 	var blocks int
 	var currentPieceLength int
 
-	if pieceNumber != totalPieces - 1{ // not the last piece
+	// NOTE(maolivera): Pieces are 0 indexed, so last piece is totalPieces - 1
+
+	if pieceNumber != totalPieces-1 { // not the last piece
 		currentPieceLength = torrentFile.Info.PieceLength
 	} else { // last piece, which may have different size
 		currentPieceLength = torrentFile.Info.Length % torrentFile.Info.PieceLength
 	}
-	blocks = currentPieceLength / BlockSize
-
 	file := make([]byte, currentPieceLength)
+
+	blocks = currentPieceLength / BlockSize
 
 	if currentPieceLength%BlockSize != 0 {
 		blocks++
 	}
 
-	slog.Debug("downloading piece", "total pieces", totalPieces, "piece number", pieceNumber + 1, "piece length", currentPieceLength)
+	slog.Debug("downloading piece", "total pieces", totalPieces, "piece number", pieceNumber+1, "piece length", currentPieceLength)
 
 	for i := 0; i < blocks; i++ {
 		slog.Debug(fmt.Sprintf("asking for block %d/%d", i+1, blocks))
 
-		index := uint32(i)
+		// payload:
+		// - index (u32): zero-based piece index
+		// - begin (u32): zero-based byte offset wihtin the piece
+		// - length (u32): length of the block in bytes (16kB for all block except last)
+
+		index := uint32(pieceNumber)
 		begin := uint32(i * BlockSize)
 		var length uint32
 		if i == blocks-1 && currentPieceLength%BlockSize != 0 { // last block, may have different size
-			length += uint32(currentPieceLength % BlockSize)
+			length = uint32(currentPieceLength % BlockSize)
 		} else {
-			length += uint32(BlockSize)
+			length = uint32(BlockSize)
 		}
 
-		slog.Debug("block parameters", "index", index, "begin", begin, "length", length)
+		slog.Debug("block payload", "piece index", index, "begin", begin, "length", length)
 
 		// create and send request for current block
 		payload := make([]byte, 12)
