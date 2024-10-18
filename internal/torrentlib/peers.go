@@ -1,8 +1,7 @@
-package peer
+package torrentlib
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,29 +11,23 @@ import (
 	"strconv"
 
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/encoding/bencode"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/torrent"
 )
 
-func GetPeers(torrentFile torrent.MetaData) ([]string, error) {
+func (torrent *Torrent) getPeers() ([]string, error) {
 	slog.Info("getting peers")
 	// made GET request to tracker url
 	// query params:
 	queryParams := make([]string, 7)
 
 	// info_hash
-	hashSum, err := torrent.GetInfoHash(torrentFile)
-	if err != nil {
-		return nil, err
-	}
-	queryParams[0] = "info_hash=" + url.QueryEscape(string(hashSum)) + "&"
+	queryParams[0] = "info_hash=" + url.QueryEscape(string(torrent.InfoHash)) + "&"
 
 	// peer_id
-	bytes := make([]byte, 10)
-	if _, err := rand.Read(bytes); err != nil {
+	peerIDBytes := make([]byte, 20)
+	if _, err := rand.Read(peerIDBytes); err != nil {
 		return nil, fmt.Errorf("error generating peer_id: %v", err)
 	}
-	peer_id := hex.EncodeToString(bytes)
-	queryParams[1] = "peer_id=" + url.QueryEscape(peer_id) + "&"
+	queryParams[1] = "peer_id=" + url.QueryEscape(string(peerIDBytes)) + "&"
 
 	// port (6881)
 	queryParams[2] = "port=6881&"
@@ -46,12 +39,12 @@ func GetPeers(torrentFile torrent.MetaData) ([]string, error) {
 	queryParams[4] = "downloaded=0&"
 
 	// left
-	queryParams[5] = "left=" + strconv.Itoa(torrentFile.Info.Length) + "&"
+	queryParams[5] = "left=" + strconv.Itoa(torrent.Length) + "&"
 
 	// compact (1)
 	queryParams[6] = "compact=1"
 
-	url := torrentFile.Announce + "?"
+	url := torrent.TrackerUrl + "?"
 	for _, param := range queryParams {
 		url += param
 	}
@@ -79,7 +72,7 @@ func GetPeers(torrentFile torrent.MetaData) ([]string, error) {
 
 	// decode response
 	slog.Debug(fmt.Sprintf("bencoded string to be unmarshal: %s", string(body)))
-	var trackerResponse torrent.TrackerResponse
+	var trackerResponse TrackerResponse
 	if err = bencode.Unmarshal(body, &trackerResponse); err != nil {
 		return nil, fmt.Errorf("error unmarshaling bencoded response: %v", err)
 	}

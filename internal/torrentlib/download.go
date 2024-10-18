@@ -1,16 +1,11 @@
-package peer
+package torrentlib
 
 import (
-	// "bytes"
-	// "crypto/sha1"
 	"encoding/binary"
-	// "encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
-
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/torrent"
 )
 
 // NOTE(maolivera): All current implementations use 2^14 (16 kiB),
@@ -25,13 +20,12 @@ const BlockSize = 16 * 1024 // 16 kB
 // downloaded file
 
 // Returns the torrent file
-func DownloadPiece(conn net.Conn, torrentFile torrent.MetaData, pieceNumber int) ([]byte, error) {
+func (torrent *Torrent) DownloadPiece(conn net.Conn, pieceNumber int) ([]byte, error) {
 	// NOTE(maolivera): Peer messages consist of message length (it does not
 	// include the bytes used to declare the length itself) prefix (4 bytes),
 	// message id (1 byte) and a payload (variable size)
 
 	var buffer []byte
-
 	// 1. wait for Bitfield message (payload does not matter)
 	if _, _, err := receiveAndValidateMessage(conn, Bitfield); err != nil {
 		return nil, err
@@ -46,7 +40,6 @@ func DownloadPiece(conn net.Conn, torrentFile torrent.MetaData, pieceNumber int)
 	// bytes to 0
 
 	// clear buffer
-	buffer = nil
 	buffer, err := createMessage(Interested, nil)
 	if err != nil {
 		return nil, err
@@ -71,37 +64,15 @@ func DownloadPiece(conn net.Conn, torrentFile torrent.MetaData, pieceNumber int)
 	// - begin (u32): zero-based byte offset wihtin the piece
 	// - block (variable): data for the piece
 
-	/*
-		// avoid hash for now
-
-		// cache all pieces' hash
-		h := sha1.New()
-		pieces := []byte(torrentFile.Info.Pieces)
-
-		numPieces := len(pieces) / 20
-		piecesHashes := make([][]byte, numPieces)
-
-		for i := 0; i < numPieces; i++ {
-			pieceHash := pieces[i*20 : (i+1)*20]
-			piecesHashes[i] = pieceHash
-		}
-	*/
-
-	totalPieces := torrentFile.Info.Length / torrentFile.Info.PieceLength
-	if torrentFile.Info.Length%torrentFile.Info.PieceLength != 0 {
-		totalPieces++
-	}
-
 	// slog.Debug(fmt.Sprintf("asking for piece %d/%d", pieceNumber+1, totalPieces))
 	var blocks int
 	var currentPieceLength int
 
 	// NOTE(maolivera): Pieces are 0 indexed, so last piece is totalPieces - 1
-
-	if pieceNumber != totalPieces-1 { // not the last piece
-		currentPieceLength = torrentFile.Info.PieceLength
+	if pieceNumber != torrent.TotalPieces-1 { // not the last piece
+		currentPieceLength = torrent.PieceLength
 	} else { // last piece, which may have different size
-		currentPieceLength = torrentFile.Info.Length % torrentFile.Info.PieceLength
+		currentPieceLength = torrent.Length % torrent.PieceLength
 	}
 	file := make([]byte, currentPieceLength)
 
@@ -111,7 +82,7 @@ func DownloadPiece(conn net.Conn, torrentFile torrent.MetaData, pieceNumber int)
 		blocks++
 	}
 
-	slog.Debug("downloading piece", "total pieces", totalPieces, "piece number", pieceNumber+1, "piece length", currentPieceLength)
+	slog.Debug("downloading piece", "piece number", pieceNumber+1, "piece length", currentPieceLength)
 
 	for i := 0; i < blocks; i++ {
 		slog.Debug(fmt.Sprintf("asking for block %d/%d", i+1, blocks))
@@ -173,35 +144,7 @@ func DownloadPiece(conn net.Conn, torrentFile torrent.MetaData, pieceNumber int)
 		slog.Debug("got block", "last 100 chars", string(file[fileBlockEnd-100:fileBlockEnd]))
 	}
 
-	filePieceStart := pieceNumber * currentPieceLength
-	filePieceEnd := filePieceStart + currentPieceLength
-	slog.Debug("get piece", "start", filePieceStart, "end", filePieceEnd)
-	/*
-			// do not calculate hash
-
-		h.Reset()
-		_, err = h.Write(file[filePieceStart:filePieceEnd])
-		if err != nil {
-			return nil, fmt.Errorf("error calculating SHA1 hash: %v", err)
-		}
-		currentPieceHash := h.Sum(nil)
-		slog.Debug("get piece", "first 100 chars", string(file[filePieceStart:filePieceStart+100]))
-		slog.Debug("get piece", "last 100 chars", string(file[filePieceEnd-100:filePieceEnd]))
-		slog.Debug("get piece", "current hash", hex.EncodeToString(currentPieceHash), "piece hash", hex.EncodeToString(piecesHashes[j]))
-		if !bytes.Equal(currentPieceHash, piecesHashes[j]) {
-			// TODO(maolivera): maybe retry to download the piece a couple of
-			// times instead of return error
-			err = fmt.Errorf(
-				"piece %d should have hash %s, instead %s",
-				j+1,
-				hex.EncodeToString(piecesHashes[j]),
-				hex.EncodeToString(currentPieceHash),
-			)
-			return nil, err
-		}
-	*/
-	slog.Info(fmt.Sprintf("successfully get piece %d/%d", pieceNumber+1, totalPieces))
-
+	slog.Info(fmt.Sprintf("successfully get piece %d/%d", pieceNumber+1, torrent.TotalPieces))
 	return file, nil
 }
 
@@ -255,5 +198,5 @@ func createMessage(messageType PeerMessage, payload []byte) ([]byte, error) {
 	message[4] = byte(messageType)
 	copy(message[5:], payload)
 	slog.Debug("message created", "payload length", payloadLen, "message type", messageType.String())
-	return message, nil
+	return message[:5+payloadLen], nil
 }

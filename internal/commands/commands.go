@@ -10,8 +10,7 @@ import (
 	"os"
 
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/encoding/bencode"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/peer"
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/torrent"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/torrentlib"
 )
 
 func Decode(bencodedValue []byte) error {
@@ -35,41 +34,24 @@ func Info(file string) error {
 
 	// unmarshal torrent into MetaData
 	slog.Debug(fmt.Sprintf("starting unmarshalling of: %s", string(data)))
-	var torrentFile torrent.MetaData
-	if err = bencode.Unmarshal(data, &torrentFile); err != nil {
+	var metaData torrentlib.MetaData
+	if err = bencode.Unmarshal(data, &metaData); err != nil {
 		return err
 	}
 
-	// hash info
-	hashSum, err := torrent.GetInfoHash(torrentFile)
+	torrent, err := torrentlib.New(metaData)
 	if err != nil {
 		return err
 	}
 
-	// info fields
-	url := torrentFile.Announce
-	length := torrentFile.Info.Length
-	pieceLength := torrentFile.Info.PieceLength
-	pieces := []byte(torrentFile.Info.Pieces)
-
-	// hash pieces
-	numPieces := len(pieces) / 20
-	piecesHashes := make([]string, numPieces)
-
-	for i := 0; i < numPieces; i++ {
-		piece := pieces[i*20 : (i+1)*20]
-		pieceHash := hex.EncodeToString([]byte(piece))
-		piecesHashes[i] = pieceHash
-	}
-
 	// print report
-	fmt.Printf("Tracker URL: %s\n", url)
-	fmt.Printf("Length: %d\n", length)
-	fmt.Printf("Info Hash: %x\n", hashSum)
-	fmt.Printf("Piece Length: %d\n", pieceLength)
+	fmt.Printf("Tracker URL: %s\n", torrent.TrackerUrl)
+	fmt.Printf("Length: %d\n", torrent.Length)
+	fmt.Printf("Info Hash: %x\n", torrent.InfoHash)
+	fmt.Printf("Piece Length: %d\n", torrent.PieceLength)
 	fmt.Println("Piece Hashes:")
-	for _, pieceHash := range piecesHashes {
-		fmt.Println(pieceHash)
+	for _, pieceHash := range torrent.PiecesHash {
+		fmt.Println(hex.EncodeToString(pieceHash))
 	}
 	return nil
 }
@@ -83,17 +65,17 @@ func Peers(file string) error {
 
 	// unmarshal torrent into MetaData
 	slog.Debug(fmt.Sprintf("starting unmarshalling of: %s", string(data)))
-	var torrentFile torrent.MetaData
-	if err = bencode.Unmarshal(data, &torrentFile); err != nil {
+	var metaData torrentlib.MetaData
+	if err = bencode.Unmarshal(data, &metaData); err != nil {
 		return fmt.Errorf("error during torrent unmarshaling: %v", err)
 	}
 
-	peers, err := peer.GetPeers(torrentFile)
+	torrent, err := torrentlib.New(metaData)
 	if err != nil {
 		return err
 	}
 
-	for _, peer := range peers {
+	for _, peer := range torrent.Peers {
 		fmt.Println(peer)
 	}
 
@@ -109,9 +91,14 @@ func Handshake(file, connection string) error {
 
 	// unmarshal torrent into MetaData
 	slog.Debug(fmt.Sprintf("starting unmarshalling of: %s", string(data)))
-	var torrentFile torrent.MetaData
-	if err = bencode.Unmarshal(data, &torrentFile); err != nil {
+	var metaData torrentlib.MetaData
+	if err = bencode.Unmarshal(data, &metaData); err != nil {
 		return fmt.Errorf("error during torrent unmarshaling: %v", err)
+	}
+
+	torrent, err := torrentlib.New(metaData)
+	if err != nil {
+		return err
 	}
 
 	var responsePeerId string
@@ -123,7 +110,7 @@ func Handshake(file, connection string) error {
 		defer conn.Close()
 
 		// handshake
-		response, err := peer.Handshake(conn, torrentFile)
+		response, err := torrent.Handshake(conn)
 		if err != nil {
 			return err
 		}
@@ -149,21 +136,21 @@ func DownloadPiece(file, urlPieceOutput string, pieceNumber int) error {
 
 	// unmarshal torrent into MetaData
 	slog.Debug(fmt.Sprintf("starting unmarshalling of: %s", string(data)))
-	var torrentFile torrent.MetaData
-	if err = bencode.Unmarshal(data, &torrentFile); err != nil {
+	var metaData torrentlib.MetaData
+	if err = bencode.Unmarshal(data, &metaData); err != nil {
 		return fmt.Errorf("error during torrent unmarshaling: %v", err)
 	}
 
-	// get peers
-
-	peers, err := peer.GetPeers(torrentFile)
+	torrent, err := torrentlib.New(metaData)
 	if err != nil {
 		return err
 	}
 
-	// select random peer
+	// TODO(maolivera): Maybe use some sort of load balance to download from
+	// multiple peers?
 
-	connection := peers[rand.Intn(len(peers))]
+	// select random peer
+	connection := torrent.Peers[rand.Intn(len(torrent.Peers))]
 	slog.Info("peer selected to do connection", "peer", connection)
 
 	conn, err := net.Dial("tcp", connection)
@@ -173,12 +160,12 @@ func DownloadPiece(file, urlPieceOutput string, pieceNumber int) error {
 	defer conn.Close()
 
 	// handshake
-	_, err = peer.Handshake(conn, torrentFile)
+	_, err = torrent.Handshake(conn)
 	if err != nil {
 		return err
 	}
 
-	downloadedPiece, err := peer.DownloadPiece(conn, torrentFile, pieceNumber)
+	downloadedPiece, err := torrent.DownloadPiece(conn, pieceNumber)
 	if err != nil {
 		return err
 	}

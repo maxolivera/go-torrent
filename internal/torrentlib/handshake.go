@@ -1,32 +1,30 @@
-package peer
+package torrentlib
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net"
-
-	"github.com/codecrafters-io/bittorrent-starter-go/internal/torrent"
 )
 
 // addr: Address of form ip:port
 // response: Response received (will be 68 bytes long)
-func Handshake(conn net.Conn, torrentFile torrent.MetaData) ([]byte, error) {
-	message, err := generateMessage(torrentFile)
+func (torrent *Torrent) Handshake(conn net.Conn) ([]byte, error) {
+	message, err := torrent.generateMessage()
 	if err != nil {
 		return nil, err
 	}
 	response := make([]byte, len(message))
-
-	if len(message) != 68 {
-		return nil, fmt.Errorf("message is not 68 bytes long, instead is: %d", len(message))
-	}
 
 	// send data
 	bytesSent, err := conn.Write(message)
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO(maolivera): Is really necessary (or even this is the right way) to
+	// check that all bytes were successfully sent?
 	if bytesSent != len(message) {
 		return nil, fmt.Errorf("message was not sent correctly, instead of sending 68 bytes, %d were sent", len(message))
 	}
@@ -46,7 +44,8 @@ func Handshake(conn net.Conn, torrentFile torrent.MetaData) ([]byte, error) {
 	return response, nil
 }
 
-func generateMessage(torrentFile torrent.MetaData) ([]byte, error) {
+// Returns a message to do Handshake, which is guaranteed to be 68 bytes long
+func (torrent *Torrent) generateMessage() ([]byte, error) {
 	// MESSAGE
 	protocol := "BitTorrent protocol"
 
@@ -83,17 +82,13 @@ func generateMessage(torrentFile torrent.MetaData) ([]byte, error) {
 	)
 
 	// 4. info hash
-	infoHash, err := torrent.GetInfoHash(torrentFile)
-	if err != nil {
-		return nil, err
-	}
-	message = append(message, infoHash...)
+	message = append(message, torrent.InfoHash...)
 	slog.Debug(
 		"creating message",
 		"current message len", len(message),
-		"field len", len(infoHash),
+		"field len", len(torrent.InfoHash),
 		"field", "info hash",
-		"value", string(infoHash),
+		"value", string(hex.EncodeToString(torrent.InfoHash)),
 	)
 
 	// 5. peer id
@@ -111,6 +106,11 @@ func generateMessage(torrentFile torrent.MetaData) ([]byte, error) {
 	)
 
 	slog.Info("message created", "length", len(message), "message", string(message))
+
+	// the message len should always be 68
+	if len(message) != 68 {
+		return nil, fmt.Errorf("message is not 68 bytes long, instead is: %d", len(message))
+	}
 
 	return message, nil
 }
