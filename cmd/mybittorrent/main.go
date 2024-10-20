@@ -12,7 +12,7 @@ import (
 
 // global variables, set during init(), used in main()
 var debugLevel DebugType
-var totalWorkers int
+var totalConnections int
 
 func main() {
 	args := flag.Args()
@@ -56,7 +56,7 @@ func main() {
 		slog.Info("connection to be used", "connection", connection)
 		err := commands.Handshake(file, connection)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println("error during handshake command: ", err)
 			return
 		}
 
@@ -82,7 +82,32 @@ func main() {
 			return
 		}
 
-		err = commands.DownloadPiece(file, *output, pieceNumber, totalWorkers)
+		err = commands.DownloadPiece(file, *output, pieceNumber)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+	case "download":
+		commandFlags := flag.NewFlagSet(command, flag.ExitOnError)
+		output := commandFlags.String("o", "", "Output file")
+		err := commandFlags.Parse(args[1:])
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		commandArgs := commandFlags.Args()
+		if len(commandArgs) < 1 {
+			fmt.Println("Not enough arguments for command", "command", command)
+			return
+		} else if len(commandArgs) > 1 {
+			fmt.Println("More arguments than needed for command. ", "command: ", command)
+			return
+		}
+
+		file := commandArgs[0]
+		err = commands.Download(file, *output, totalConnections)
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -95,7 +120,7 @@ func main() {
 func init() {
 	// get log level from flags
 	flag.Var(&debugLevel, "debug", "Debug level (info, debug, warning)")
-	flag.IntVar(&totalWorkers, "w", 5, "Total amount of concurrent block downloads")
+	flag.IntVar(&totalConnections, "c", 3, "Total amount of concurrent peer connections to download a file")
 	flag.Parse()
 
 	// configure logger

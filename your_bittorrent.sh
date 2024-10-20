@@ -12,4 +12,4 @@ tmpFile=$(mktemp)
 ( cd $(dirname "$0") &&
 	go build -o "$tmpFile" ./cmd/mybittorrent)
 
-exec "$tmpFile" --debug warning -w 1 "$@"
+exec "$tmpFile" --debug warn -c 8 "$@"

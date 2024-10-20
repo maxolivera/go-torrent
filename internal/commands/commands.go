@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/rand"
-	"net"
 	"os"
 
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/encoding/bencode"
 	"github.com/codecrafters-io/bittorrent-starter-go/internal/torrentlib"
+	"github.com/codecrafters-io/bittorrent-starter-go/internal/torrentlib/peerlib"
 )
 
 func Decode(bencodedValue []byte) error {
@@ -101,33 +100,24 @@ func Handshake(file, connection string) error {
 		return err
 	}
 
-	var responsePeerId string
-	{
-		conn, err := net.Dial("tcp", connection)
-		if err != nil {
-			return err
-		}
-		defer conn.Close()
-
-		// handshake
-		response, err := torrent.Handshake(conn)
-		if err != nil {
-			return err
-		}
-
-		// extract peer_id
-		peerIdBytes := response[48:]
-		responsePeerId = hex.EncodeToString(peerIdBytes)
+	peer, err := peerlib.NewNoBitfield(connection, torrent.InfoHash)
+	if err != nil {
+		return fmt.Errorf("error when creating new peer connection: %v", err)
 	}
 
-	fmt.Printf("Peer ID: %s\n", responsePeerId)
+	slog.Debug("printing peerID", "try", 1, "peerID", fmt.Sprintf("%x", peer.PeerID))
+	peerIDStr := hex.EncodeToString(peer.PeerID[:])
+	slog.Debug("printing peerID", "try", 2, "peerID", peerIDStr)
+
+	fmt.Print("Peer ID: ")
+	fmt.Println(peerIDStr)
 
 	return nil
 }
 
 // file: name of .torrent file
 // urlPieceOutput: where to store the piece downloaded
-func DownloadPiece(file, urlPieceOutput string, pieceNumber, totalWorkers int) error {
+func DownloadPiece(file, urlPieceOutput string, pieceNumber int) error {
 	slog.Info("downloading a piece", "output", urlPieceOutput)
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -146,28 +136,7 @@ func DownloadPiece(file, urlPieceOutput string, pieceNumber, totalWorkers int) e
 		return err
 	}
 
-	// TODO(maolivera): Maybe use some sort of load balance to download from
-	// multiple peers?
-
-	// select random peer
-	connection := torrent.Peers[rand.Intn(len(torrent.Peers))]
-	slog.Info("peer selected to do connection", "peer", connection)
-
-	conn, err := net.Dial("tcp", connection)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	// handshake
-	_, err = torrent.Handshake(conn)
-	if err != nil {
-		return err
-	}
-
-	slog.Info("Starting to download piece. Rembember that both piece id and block id are 0 indexed (first is 0, not 1)")
-
-	downloadedPiece, err := torrent.DownloadPiece(conn, pieceNumber, totalWorkers)
+	downloadedPiece, err := torrent.DownloadPiece(pieceNumber)
 	if err != nil {
 		return err
 	}
@@ -178,5 +147,40 @@ func DownloadPiece(file, urlPieceOutput string, pieceNumber, totalWorkers int) e
 
 	slog.Info("successfully downloaded piece")
 
+	return nil
+}
+
+// file: name of .torrent file
+// urlPieceOutput: where to store the piece downloaded
+func Download(file, urlFileOutput string, desiredConnections int) error {
+	slog.Info("downloading a piece", "output", urlFileOutput, "desiredConnections", desiredConnections)
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return fmt.Errorf("error during file %q reading: %v", file, err)
+	}
+
+	// unmarshal torrent into MetaData
+	slog.Debug(fmt.Sprintf("starting unmarshalling of: %s", string(data)))
+	var metaData torrentlib.MetaData
+	if err = bencode.Unmarshal(data, &metaData); err != nil {
+		return fmt.Errorf("error during torrent unmarshaling: %v", err)
+	}
+
+	torrent, err := torrentlib.New(metaData)
+	if err != nil {
+		return err
+	}
+
+	slog.Debug("Starting to download file. Rembember that both piece id and block id are 0 indexed")
+	downloadedFile, err := torrent.Download(desiredConnections)
+	if err != nil {
+		return err
+	}
+
+	if err = os.WriteFile(urlFileOutput, downloadedFile, 0644); err != nil {
+		return err
+	}
+
+	slog.Info("successfully downloaded file")
 	return nil
 }
