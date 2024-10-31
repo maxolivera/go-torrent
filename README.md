@@ -59,3 +59,6 @@ go test ./...
 Through this project, I've deepened my understanding of network protocols, binary data handling, and concurrency in Go. My goal is to continue developing go-torrent into a robust, feature-complete BitTorrent client, showcasing not only my software development skills but also my enthusiasm for distributed systems.
 
 
+## Contributing
+
+If you'd like to contribute, please fork the repository and open a pull request to the `master` branch.
