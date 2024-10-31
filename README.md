@@ -1,35 +1,61 @@
-[![progress-banner](https://backend.codecrafters.io/progress/bittorrent/4fa7f052-ead9-4b21-b432-a4c79518a3b3)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# go-torrent
 
-This is a starting point for Go solutions to the
-["Build Your Own BitTorrent" Challenge](https://app.codecrafters.io/courses/bittorrent/overview).
+**go-torrent** is a Go-based BitTorrent client that began as a [Codecrafters](codecrafters.io) challenge but has since evolved into a more extensive project, designed with a future-proof architecture to incorporate additional BitTorrent Enhancement Proposals (BEPs). This repository demonstrates not only my implementation of core BitTorrent protocol components but also a custom-built bencode serializer/deserializer, allowing for precise control over torrent data encoding.
 
-In this challenge, you’ll build a BitTorrent client that's capable of parsing a
-.torrent file and downloading a file from a peer. Along the way, we’ll learn
-about how torrent files are structured, HTTP trackers, BitTorrent’s Peer
-Protocol, pipelining and more.
+## Features
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+* **Bencode Serializer/Deserializer**: Built from scratch, the `bencode` package offers encoding and decoding of torrent files and peer communication. It supports all core bencode types, including integers, strings, lists, and dictionaries.
+* **Torrent Tracker Interaction**: Communicates with torrent trackers via GET requests, querying with precise parameters like `info_hash`, `peer_id`, and `port` to receive peer data.
+* **Peer Message Handling**: Full implementation of message types such as choke, unchoke, and piece requests, with validation to ensure data integrity and seamless peer interactions.
+* **Piece Downloading with Integrity Checks**: Includes hashing to validate downloaded pieces, preventing corrupted data from impacting the download.
+* **Concurrent Block Downloading**: Implements pipelined downloading to optimize download speed, using multiple goroutines to fetch blocks concurrently.
+* **Error Recovery**: Incorporates retry mechanisms and re-queuing for blocks that fail, ensuring robustness in varying network conditions.
 
-# Passing the first stage
+## Roadmap
 
-The entry point for your BitTorrent implementation is in
-`cmd/mybittorrent/main.go`. Study and uncomment the relevant code, and push your
-changes to pass the first stage:
+This project is built with a modular approach to support future BEPs and additional protocol features. Planned enhancements include:
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
+1. **Peer Exchange (PEX)**: Enhance peer discovery by exchanging peer lists with connected clients, reducing reliance on central trackers.
+2. **DHT (Distributed Hash Table)**: Add support for a decentralized peer lookup system, making downloads more resilient.
+3. **Magnet Link Support**: Implement magnet URI parsing for direct, trackerless torrent loading.
+
+## Code Structure
+
+The codebase is divided into clear, modular packages, making it easy to navigate and extend:
+
+* `cmd/` - Contains CLI-related code, allowing users to initiate torrent downloads via command line.
+* `internal/torrent/` - Core torrent logic, including piece management, peer connection handling, and download coordination.
+* `internal/bencode/` - Custom bencode serializer and deserializer.
+* `tests/` - Comprehensive unit tests for each protocol component to ensure stability and accuracy.
+
+## Getting Started
+
+Clone the repository and build the CLI application:
+
+```bash
+git clone https://github.com/maxolivera/go-torrent.git
+cd go-torrent
+go build -o go-torrent ./cmd/
 ```
 
-Time to move on to the next stage!
+## Example Usage
 
-# Stage 2 & beyond
+To download a torrent file:
 
-Note: This section is for stages 2 and beyond.
+```bash
+./go-torrent download <path-to-torrent-file>
+```
 
-1. Ensure you have `go (1.19)` installed locally
-1. Run `./your_bittorrent.sh` to run your program, which is implemented in
-   `cmd/mybittorrent/main.go`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+## Testing
+
+Run the unit tests to verify functionality:
+
+```bash
+go test ./...
+```
+
+## Learnings and Future Goals
+
+Through this project, I've deepened my understanding of network protocols, binary data handling, and concurrency in Go. My goal is to continue developing go-torrent into a robust, feature-complete BitTorrent client, showcasing not only my software development skills but also my enthusiasm for distributed systems.
+
+
